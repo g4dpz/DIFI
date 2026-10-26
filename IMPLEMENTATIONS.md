@@ -144,13 +144,16 @@ cmake -S cpp -B cpp/build && cmake --build cpp/build
 ./tests/interop.sh
 ```
 
-`tests/interop.sh` proves three things:
+`tests/interop.sh` proves (across its numbered sections):
 1. Both tools regenerate the golden packets **byte-identically** to the committed oracle.
 2. Each tool **decodes the other's** packets and recovers identical field values.
 3. **Live UDP exchange in all four directions** (rust→rust, cpp→cpp, cpp→rust,
    rust→cpp): the sender streams one Signal Context + N Signal Data packets over a real
    UDP socket; the receiver filters by Stream ID, decodes, and verifies every sample and
    the mod-16 sequence number. The receiver prints `RECV OK <N>` only on an exact match.
+3b. **Non-standard TCP dev-mode exchange, all four directions** (Req 5.2): the same
+   verification over the length-framed TCP transport, including cross-language
+   (rust↔cpp), proving the framing is byte-compatible between implementations.
 4. **Sample-mapper agreement**: both tools map the same fixed float vector to integer
    codes at bit depths 4/8/12/16 and must produce byte-identical code lists and loss
    figures.

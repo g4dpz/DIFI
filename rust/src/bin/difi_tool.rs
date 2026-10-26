@@ -160,6 +160,66 @@ fn send(dest: &str, count: u32) -> Result<(), String> {
     Ok(())
 }
 
+/// Send a short DIFI stream over the NON-STANDARD TCP dev transport (Req 5.2):
+/// one Signal Context packet, then `count` Signal Data packets, length-framed.
+fn tcp_send(dest: &str, count: u32) -> Result<(), String> {
+    let mut enc = StreamEncoder::new(STREAM_ID, 16);
+    let mut sender = difi::TcpSender::connect(dest).map_err(|e| e.to_string())?;
+    let ctx = enc
+        .encode_context(2.401e9, 1.0e6, 1.25e6, -3.5, INT_SECONDS, FRAC_PS)
+        .map_err(|e| e.to_string())?;
+    sender.send(&ctx).map_err(|e| e.to_string())?;
+    for p in 0..count {
+        let data = enc
+            .encode_data(&stream_samples(p), INT_SECONDS, FRAC_PS + p as u64)
+            .map_err(|e| e.to_string())?;
+        sender.send(&data).map_err(|e| e.to_string())?;
+    }
+    println!("tcp-sent 1 context + {count} data packets to {dest} (stream 0x{STREAM_ID:08X})");
+    Ok(())
+}
+
+/// Receive a DIFI stream over the NON-STANDARD TCP dev transport, verifying each data
+/// packet's samples and sequence number. Prints `RECV OK <n>` on success.
+fn tcp_recv(bind_addr: &str, count: u32) -> Result<(), String> {
+    let mut rx = difi::TcpReceiver::bind(bind_addr).map_err(|e| e.to_string())?;
+    rx.set_stream_filter(Some(STREAM_ID));
+    let mut dec = Decoder::new();
+
+    let mut data_seen = 0u32;
+    let mut ctx_seen = 0u32;
+    while data_seen < count {
+        let buf = match rx.recv().map_err(|e| format!("tcp recv: {e}"))? {
+            Some(b) => b,
+            None => return Err(format!("stream closed after {data_seen}/{count} data packets")),
+        };
+        match dec.decode(&buf).map_err(|e| e.to_string())? {
+            DifiPacket::SignalContext(c) => {
+                ctx_seen += 1;
+                if c.data_format.bit_depth != 16 {
+                    return Err(format!("unexpected bit depth {}", c.data_format.bit_depth));
+                }
+            }
+            DifiPacket::SignalData(d) => {
+                let expected = stream_samples(data_seen);
+                if d.samples != expected {
+                    return Err(format!("sample mismatch at data packet {data_seen}"));
+                }
+                if d.header.seq_num != (data_seen % 16) as u8 {
+                    return Err(format!("seq mismatch at packet {data_seen}: got {}", d.header.seq_num));
+                }
+                data_seen += 1;
+            }
+            DifiPacket::VersionContext(_) => {}
+        }
+    }
+    if ctx_seen == 0 {
+        return Err("no Signal Context packet received before data".into());
+    }
+    println!("RECV OK {data_seen}");
+    Ok(())
+}
+
 /// Receive a DIFI stream on `bind_addr`, filter by the known Stream ID, decode, and
 /// verify each data packet's samples and sequence number against the expected stream.
 /// Prints `RECV OK <n>` on full success so the interop harness can assert on it.
@@ -451,6 +511,7 @@ fn main() -> ExitCode {
         eprintln!(
             "usage: difi-tool <gen-golden <dir> | dump <file> | map-check <depth> \
 | send <host:port> <count> | recv <bind> <count> \
+| tcp-send <host:port> <count> | tcp-recv <bind> <count> \
 | export <host:port> | import <bind> | import-interop <bind> | gen-check \
 | generate <work-dir> | verify-manifest <file>>"
         )
@@ -497,6 +558,32 @@ fn main() -> ExitCode {
         },
         Some("recv") => match (args.get(2), args.get(3).and_then(|s| s.parse().ok())) {
             (Some(bind), Some(count)) => match recv(bind, count) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    ExitCode::FAILURE
+                }
+            },
+            _ => {
+                usage();
+                ExitCode::FAILURE
+            }
+        },
+        Some("tcp-send") => match (args.get(2), args.get(3).and_then(|s| s.parse().ok())) {
+            (Some(dest), Some(count)) => match tcp_send(dest, count) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    ExitCode::FAILURE
+                }
+            },
+            _ => {
+                usage();
+                ExitCode::FAILURE
+            }
+        },
+        Some("tcp-recv") => match (args.get(2), args.get(3).and_then(|s| s.parse().ok())) {
+            (Some(bind), Some(count)) => match tcp_recv(bind, count) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
                     eprintln!("error: {e}");

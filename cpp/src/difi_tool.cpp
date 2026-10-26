@@ -336,6 +336,54 @@ int send_stream(const std::string& dest, uint32_t count) {
   return 0;
 }
 
+// NON-STANDARD TCP dev transport (Req 5.2): one context + count data packets.
+int tcp_send_stream(const std::string& dest, uint32_t count) {
+  difi::StreamEncoder enc(STREAM_ID, 16);
+  difi::TcpSender tx(dest);
+  tx.send(enc.encode_context(2.401e9, 1.0e6, 1.25e6, -3.5, INT_SECONDS, FRAC_PS));
+  for (uint32_t p = 0; p < count; ++p)
+    tx.send(enc.encode_data(stream_samples(p), INT_SECONDS, FRAC_PS + p));
+  std::printf("tcp-sent 1 context + %u data packets to %s (stream 0x%08X)\n", count,
+              dest.c_str(), STREAM_ID);
+  return 0;
+}
+
+int tcp_recv_stream(const std::string& bind_addr, uint32_t count) {
+  difi::TcpReceiver rx(bind_addr);
+  rx.set_stream_filter(true, STREAM_ID);
+  difi::Decoder dec;
+  uint32_t data_seen = 0, ctx_seen = 0;
+  while (data_seen < count) {
+    auto buf = rx.recv();
+    if (buf.empty()) {
+      std::fprintf(stderr, "error: stream closed after %u/%u data packets\n", data_seen,
+                   count);
+      return 1;
+    }
+    auto pkt = dec.decode(buf);
+    if (pkt.kind == difi::PacketKind::SignalContext) {
+      ++ctx_seen;
+    } else if (pkt.kind == difi::PacketKind::SignalData) {
+      auto expected = stream_samples(data_seen);
+      if (pkt.data->samples != expected) {
+        std::fprintf(stderr, "error: sample mismatch at data packet %u\n", data_seen);
+        return 1;
+      }
+      if (pkt.data->header.seq_num != static_cast<uint8_t>(data_seen % 16)) {
+        std::fprintf(stderr, "error: seq mismatch at packet %u\n", data_seen);
+        return 1;
+      }
+      ++data_seen;
+    }
+  }
+  if (ctx_seen == 0) {
+    std::fprintf(stderr, "error: no Signal Context received before data\n");
+    return 1;
+  }
+  std::printf("RECV OK %u\n", data_seen);
+  return 0;
+}
+
 int recv_stream(const std::string& bind_addr, uint32_t count) {
   difi::UdpReceiver rx(bind_addr);
   rx.set_stream_filter(true, STREAM_ID);
@@ -389,6 +437,10 @@ int main(int argc, char** argv) {
       return send_stream(argv[2], static_cast<uint32_t>(std::stoul(argv[3])));
     if (argc >= 4 && std::string(argv[1]) == "recv")
       return recv_stream(argv[2], static_cast<uint32_t>(std::stoul(argv[3])));
+    if (argc >= 4 && std::string(argv[1]) == "tcp-send")
+      return tcp_send_stream(argv[2], static_cast<uint32_t>(std::stoul(argv[3])));
+    if (argc >= 4 && std::string(argv[1]) == "tcp-recv")
+      return tcp_recv_stream(argv[2], static_cast<uint32_t>(std::stoul(argv[3])));
     if (argc >= 3 && std::string(argv[1]) == "map-check")
       return map_check(static_cast<uint8_t>(std::stoul(argv[2])));
     if (argc >= 3 && std::string(argv[1]) == "export") return export_signal(argv[2]);

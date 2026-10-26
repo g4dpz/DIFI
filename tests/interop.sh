@@ -75,6 +75,28 @@ run_case "cpp  -> cpp"  $((PORT_BASE + 1)) "$CPP_TOOL"  "$CPP_TOOL"
 run_case "cpp  -> rust" $((PORT_BASE + 2)) "$RUST_TOOL" "$CPP_TOOL"
 run_case "rust -> cpp"  $((PORT_BASE + 3)) "$CPP_TOOL"  "$RUST_TOOL"
 
+echo "== 3b. non-standard TCP dev-mode interop (all four directions, Req 5.2) =="
+TCP_PORT_BASE=54920
+# TCP needs the receiver listening before the sender connects.
+run_tcp_case() {
+  local label="$1" port="$2" recv_tool="$3" send_tool="$4"
+  local out
+  out="$("$recv_tool" tcp-recv "127.0.0.1:$port" "$COUNT" & recv_pid=$!
+         sleep 0.4
+         "$send_tool" tcp-send "127.0.0.1:$port" "$COUNT" >/dev/null 2>&1
+         wait $recv_pid)"
+  if [ "$out" = "RECV OK $COUNT" ]; then
+    echo "  ok  $label  ($out)"
+  else
+    echo "FAIL: $label (TCP) — receiver reported: '$out'"
+    exit 1
+  fi
+}
+run_tcp_case "rust -> rust" $((TCP_PORT_BASE + 0)) "$RUST_TOOL" "$RUST_TOOL"
+run_tcp_case "cpp  -> cpp"  $((TCP_PORT_BASE + 1)) "$CPP_TOOL"  "$CPP_TOOL"
+run_tcp_case "cpp  -> rust" $((TCP_PORT_BASE + 2)) "$RUST_TOOL" "$CPP_TOOL"
+run_tcp_case "rust -> cpp"  $((TCP_PORT_BASE + 3)) "$CPP_TOOL"  "$RUST_TOOL"
+
 echo "== 4. sample-mapper agreement (float -> DIFI integer) =="
 for d in 4 8 12 16; do
   if diff <("$RUST_TOOL" map-check "$d") <("$CPP_TOOL" map-check "$d") >/dev/null; then
