@@ -32,6 +32,9 @@ target_link_libraries(difi-tool PRIVATE difi)
 enable_testing()
 add_executable(difi_tests tests/test_codec.cpp)
 target_link_libraries(difi_tests PRIVATE difi)
+# The 1.1 backward-compat regression test (task 5) decodes the committed golden packets.
+target_compile_definitions(difi_tests PRIVATE
+  DIFI_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../tests/golden")
 add_test(NAME codec COMMAND difi_tests)
 
 # Golden-packet conformance: regenerate and diff against the committed shared oracle.

@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <fstream>
 #include <functional>
 #include <string>
 #include <thread>
@@ -415,6 +416,71 @@ static void test_command_core() {
   CHECK(throws([] { check_action_mode(0b100); }));
 }
 
+// DIFI 1.1 backward-compat regression gate — spec difi-1.2-dataplane task 5. Decodes the
+// committed 1.1 golden packets through the 1.2-extended decoder and asserts the
+// documented fields survive. Mirrors rust/tests/backcompat_1_1.rs.
+static std::vector<uint8_t> read_golden(const std::string& name) {
+  std::string path = std::string(DIFI_GOLDEN_DIR) + "/" + name;
+  std::ifstream f(path, std::ios::binary);
+  if (!f) {
+    std::printf("FAIL: cannot open golden %s\n", path.c_str());
+    ++g_failures;
+    return {};
+  }
+  return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)),
+                              std::istreambuf_iterator<char>());
+}
+
+static void test_backcompat_1_1() {
+  // Signal Context golden -> documented fields, still class 0x0001.
+  {
+    auto buf = read_golden("signal_context_16bit.difi.bin");
+    CHECK(buf.size() == 108);
+    Decoder dec;
+    DifiPacket p = dec.decode(buf);
+    CHECK(p.kind == PacketKind::SignalContext);
+    const auto& c = *p.context;
+    CHECK(c.header.stream_id == 0x12345678u);
+    CHECK(c.header.integer_seconds == 1700000000u);
+    CHECK(c.header.fractional_seconds == 123456789000ull);
+    CHECK(c.header.packet_class == constants::packet_class::SIGNAL_CONTEXT);
+    CHECK(c.header.tsf == constants::tsf::REAL_TIME_PS);
+    CHECK(std::abs(c.rf_reference_hz - 2.401e9) < 1.0);
+    CHECK(std::abs(c.bandwidth_hz - 1.0e6) < 1.0);
+    CHECK(std::abs(c.sample_rate_hz - 1.25e6) < 1.0);
+    CHECK(std::abs(static_cast<double>(c.gain_db) - (-3.5)) < 1e-6);
+    CHECK(c.data_format.bit_depth == 16);
+  }
+  // Version Context golden.
+  {
+    auto buf = read_golden("version_context.difi.bin");
+    CHECK(buf.size() == 44);
+    Decoder dec;
+    DifiPacket p = dec.decode(buf);
+    CHECK(p.kind == PacketKind::VersionContext);
+    const auto& v = *p.version;
+    CHECK(v.header.packet_class == constants::packet_class::VERSION_CONTEXT);
+    CHECK(v.year == 2021);
+    CHECK(v.day == 100);
+  }
+  // Signal Data golden -> documented samples, still class 0x0000.
+  {
+    auto buf = read_golden("signal_data_16bit.difi.bin");
+    CHECK(buf.size() == 60);
+    Decoder dec;
+    dec.set_bit_depth(0x12345678u, 16);
+    DifiPacket p = dec.decode(buf);
+    CHECK(p.kind == PacketKind::SignalData);
+    const auto& d = *p.data;
+    CHECK(d.header.packet_class == constants::packet_class::SIGNAL_DATA);
+    CHECK(d.header.seq_num == 0);
+    CHECK(d.bit_depth == 16);
+    std::vector<IqSample> expected{{-4, 100}, {-3, 75}, {-2, 50}, {-1, 25},
+                                   {0, 0},    {1, -25}, {2, -50}, {3, -75}};
+    CHECK(d.samples == expected);
+  }
+}
+
 // DIFI 1.2 Sample Count Data/Context twins — spec difi-1.2-dataplane task 4. Mirrors
 // rust/tests/sample_count.rs.
 static void test_sample_count() {
@@ -600,6 +666,7 @@ int main() {
   test_command_core();
   test_flow_control();
   test_sample_count();
+  test_backcompat_1_1();
   test_iq_round_trip();
   test_iq_rejections();
   test_signal_data_round_trip();
