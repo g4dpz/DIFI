@@ -7,32 +7,39 @@ This document designs a reference DIFI I/Q exchange layer satisfying the require
 transport, a float↔integer sample-format mapping, reproducible signal generators, and
 conformance validation against the DIFI Consortium tooling.
 
+As built, this is delivered as **two independent implementations — Rust and C++** (see
+DQ-1 below) that interoperate, rather than the single Python package first proposed.
+
 The guiding principle mirrors how the standard itself works: DIFI is a *constrained
 schema* of VITA 49.2, so the implementation should be small, explicit, and strict —
 rejecting anything outside the DIFI profile rather than trying to be a general VRT stack.
 
 See `docs/reference/DIFI-VITA49-PRIMER.md` for the standard's field-level details.
 
-## Design decisions and open questions
+## Design decisions (and their resolution)
 
-A few decisions are deliberately deferred to the team (recorded here, not silently
-chosen), because they have external constraints:
+These started as open questions deferred to the team. Their current resolution is
+recorded here; see `tasks.md` and `IMPLEMENTATIONS.md` for the implementing work.
 
-- **DQ-1 Implementation language.** Candidates: **Python** (matches the DIFI
-  certification tooling, gr-difi bindings, fastest to interop, lowest barrier for the
-  community) vs a compiled core (C++/Rust) for throughput/HITL. *Proposed:* start in
-  **Python** for the reference encoder/decoder and conformance work; revisit a compiled
-  core only if HITL throughput demands it. Rationale: the first job is wire-correctness
-  and interop, not line rate.
-- **DQ-2 Sample bit depth + scaling convention** (Requirement 4). DIFI allows 4–16 bit
-  signed integers; the competition signals are float32. The scaling/reference-level
-  convention must be pinned against the DIFI reference-gain/scaling guidance. *Proposed
-  default:* 16-bit signed, full-scale mapping documented in the manifest; confirm with the
-  team and against ESTRACK expectations.
-- **DQ-3 DIFI version.** 1.1 now; 1.2.1 (flow control, command packets) later. Design
-  keeps packet-type handling open for extension (see Packet Registry below).
-- **DQ-4 Canonical dataset hosting.** Zenodo (DOIs) vs Release assets — policy question,
-  not code; see artifact policy.
+- **DQ-1 Implementation language — RESOLVED: two independent implementations, Rust +
+  C++.** The original proposal was a single **Python** package (matches the certification
+  tooling, lowest barrier). We instead built **two independent implementations** (a Rust
+  library crate and a C++17 header-only library). Rationale: two independent
+  implementations exchanging I/Q is a stronger interop demonstration than one reference,
+  and gives a compiled core for the eventual HITL/throughput work. They validate against
+  each other, the DIFI Consortium reference, and gr-difi. A Python reference could still
+  be added later as a third implementation checked against the same golden packets.
+- **DQ-2 Sample bit depth + scaling — RESOLVED (with a caveat): 16-bit signed,
+  full-scale = 2^(n-1)-1.** `float→int = round(clamp(x/full_scale, -1, 1) · FS)`,
+  round-half-away-from-zero, saturating; `full_scale` recorded in the manifest.
+  **Caveat (Req 4.3):** the convention is documented and pinned but **not yet reconciled
+  against the DIFI MILCOM reference-gain/scaling guidance** — open follow-up.
+- **DQ-3 DIFI version — RESOLVED: 1.1 only.** 1.2.1 (flow control, command packets)
+  remains a future increment; the packet-type/class handling leaves room for it.
+- **DQ-4 Canonical dataset hosting — OPEN.** The manifest records a SHA-256 so large data
+  can be hosted externally (Zenodo vs Release assets), but no real canonical dataset is
+  wired up yet; the committed reference is a reproducible LSIS-AFS-*style* waveform, not
+  a real LSIS-AFS vector. Policy question, not code.
 
 These map to the "Open questions" in the primer and the proposal email.
 
@@ -65,16 +72,23 @@ These map to the "Open questions" in the primer and the proposal email.
 
 ### 1. Packet model
 Typed representations of the three DIFI 1.1 packets:
-- `SignalDataPacket` — header (packet type, class-id bit, TSI, TSF, 4-bit seq num,
+- `SignalDataPacket` — header (packet type, class-id bit, TSM, TSI, TSF, 4-bit seq num,
   packet size), Stream ID, OUI, Info/Packet class codes, integer + fractional (psec)
   timestamps, I/Q payload.
 - `SignalContextPacket` — RF reference frequency, bandwidth, sample rate, gain, data
   format (bit depth / packing), timestamps.
-- `VersionContextPacket` — sender version, DIFI spec version.
+- `VersionContextPacket` — sender/spec version fields.
 
-Each packet type has a `pack() -> bytes` and `classmethod unpack(bytes)`.
+Each packet type has a `pack()` → bytes and an `unpack(bytes)` constructor.
 Bit/field packing is **big-endian**, 32-bit-word aligned, per the primer. Constants
 (OUI `0x6A621E`, header = 7 words, class codes) live in one `constants` module.
+
+**As built (conformance-driven, see task 10):** the context and version packets are NOT
+loose field bags — they are the authoritative DIFI layouts. Signal Context is a fixed
+**27-word** packet (VRT type `0x4`, TSM=1, `cif0`, `refPoint=0x64`, fixed-point 2^20/2^7
+scaled fields, `dataPacketFormat` carrying bit depth). Version Context is a fixed
+**11-word** packet (VRT type **`0x5`**, `cif1`, `v49SpecVersion`). These match the DIFI
+Consortium reference `construct` definitions exactly.
 
 ### 2. DIFI Encoder
 Builds valid packets from a packet model + stream config. Responsibilities:
@@ -82,7 +96,8 @@ Builds valid packets from a packet model + stream config. Responsibilities:
 - Maintain and increment the mod-16 sequence number across a data stream.
 - Enforce the whole-4-byte-word constraint for the chosen samples-per-packet × bit depth;
   reject invalid configs (Req 2.4).
-- Enforce the ≤~9000-octet UDP payload limit; reject or segment per config (Req 2.5).
+- Enforce the ≤~9000-octet UDP payload limit; reject per config (Req 2.5). *As built: the
+  reject path is implemented; automatic segmentation is not.*
 
 ### 3. DIFI Decoder + Validator
 Parses bytes into the packet model, failing closed on anything outside the DIFI profile:
@@ -93,15 +108,18 @@ Parses bytes into the packet model, failing closed on anything outside the DIFI 
 
 ### 4. Sample Mapper (float ↔ DIFI integer)
 Deterministic quantization with an explicit, documented scaling/reference-level
-convention (DQ-2). Provides `float_to_difi(iq, bit_depth, scale)` and the inverse, and a
-`measure_implementation_loss()` helper that reports round-trip error (Req 4.2) — never
-assumes lossless. The convention is written into the signal manifest.
+convention (DQ-2). Provides `float_to_difi(iq, convention)` and the inverse (the
+convention carries bit depth + full-scale), and a `measure_implementation_loss()` helper
+that reports round-trip error (Req 4.2) — never assumes lossless. The convention is
+written into the signal manifest. *Caveat: not yet reconciled against the DIFI MILCOM
+reference-gain guidance (Req 4.3).*
 
 ### 5. Transport
-- **UDP** sender/receiver (the DIFI-standard transport, Req 5.1).
+- **UDP** sender/receiver (the DIFI-standard transport, Req 5.1). *As built.*
 - Optional **TCP** mode for lossless development exchange, clearly labelled non-standard
-  (Req 5.2).
+  (Req 5.2). *Not built — Req 5.2 is a MAY; deferred.*
 - Receiver filters by **Stream ID** so multiple streams can share a port (Req 5.3).
+  *As built.*
 - Transport is decoupled from the packet model (encode/decode never touch sockets), so
   packets can be unit-tested and golden-compared without the network.
 
@@ -112,11 +130,20 @@ assumes lossless. The convention is written into the signal manifest.
   generators write large output to a gitignored working dir, never into tracked paths.
 
 ### 7. Conformance harness
-Scripts that drive the external DIFI tooling:
-- Encode → parse with DIFI `certify_source.py` (Req 3.2).
-- `certify_sink.py` → decode with our decoder (Req 3.3).
-- Produce a capture for the DIFI Wireshark dissector (Req 3.1).
+Validation against the external DIFI tooling. *As built, this uses the DIFI Consortium
+reference `construct` packet definitions (fetched on demand, pinned, not vendored)
+rather than driving the full `certify_*.py` scripts — the definitions + their
+`validate()` methods are the authoritative wire contract and the substantive part of
+what the certifier checks.*
+- Our packets parse + validate clean against the reference definitions
+  (`certify.py`, Req 3.2).
+- Reference-built packets decode in our tools; both directions
+  (`cross_decode.py`, Req 3.3, 7.2).
+- DIFI Wireshark dissector capture (Req 3.1): **not run** — manual GUI step; the
+  construct defs encode the same wire contract.
 - Golden packets committed as fixtures (Req 3.4).
+- Also: GNU Radio interop (socket_pdu Route 1, and gr-difi's own blocks Route 2) —
+  see `docs/interop/`.
 
 ## Data flow — export an existing LSIS-AFS signal over DIFI (Req 7.1)
 1. Load the float32 reference I/Q (regenerated from its generator, not a committed blob).
@@ -141,11 +168,13 @@ Scripts that drive the external DIFI tooling:
   supported bit depth incl. sub-byte packing; config-validation rejections.
 - **Golden:** committed KB-scale packets with documented field values as regression
   fixtures.
-- **Conformance:** against DIFI `certify_*` and the Wireshark dissector (Req 3).
-- **Interop:** cross-decode with gr-difi both directions where available (Req 7.2);
-  record evidence.
-- **Property/fuzz (stretch):** random valid configs round-trip; malformed input never
-  crashes the decoder, only raises typed errors.
+- **Conformance:** our packets validate against the DIFI Consortium reference `construct`
+  definitions (Req 3.2, 3.3). Wireshark dissector (Req 3.1) not run — manual step.
+- **Interop:** the two implementations exchange I/Q (byte-identical generation,
+  cross-decode, live UDP, export/import); cross-decode with the reference defs, GNU Radio
+  (socket_pdu), and gr-difi's own blocks (Req 7.2) — all recorded under `docs/interop/`.
+- **Property/fuzz (stretch, done):** random valid configs round-trip; ~20k malformed
+  buffers never crash the decoder; C++ fuzz clean under ASan+UBSan.
 - Sample-mapper loss is **measured and reported**, not assumed.
 
 ## Security / robustness

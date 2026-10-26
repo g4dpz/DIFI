@@ -151,3 +151,29 @@ implementations, not just internally.
   are a later increment).
 - Live ESTRACK hardware integration (the HITL second step; this toolkit enables it).
 - Full VITA 49.2 generality beyond the DIFI profile.
+
+## Implementation status
+
+The acceptance criteria above are the normative targets and are left unchanged. This
+section records where the shipped toolkit stands against them (two independent
+implementations, Rust + C++). See `tasks.md`, `IMPLEMENTATIONS.md`, and `docs/interop/`.
+
+- **Req 1 (decode), Req 2 (encode):** met. Caveat on 2.5 — the encoder rejects oversized
+  payloads; automatic segmentation is not implemented (the criterion allows reject OR
+  segment).
+- **Req 3 (conformance):** 3.2, 3.3, 3.4 met against the DIFI Consortium reference
+  `construct` definitions. **3.1 (Wireshark dissector) not exercised** — a manual GUI
+  step; the construct defs encode the same wire contract.
+- **Req 4 (sample mapping):** 4.1, 4.2 met (documented, deterministic, measured loss).
+  **4.3 partial** — the convention is documented and in the manifest, but not yet
+  reconciled against the DIFI MILCOM reference-gain/scaling guidance.
+- **Req 5 (transport):** 5.1 (UDP) and 5.3 (Stream-ID filter) met. **5.2 (TCP dev mode)
+  not implemented** — it is a MAY/optional.
+- **Req 6 (reproducible signals):** 6.1, 6.2, 6.3 met. **6.4 partial** — the manifest
+  records a SHA-256 for external hosting, but no real canonical dataset is hosted yet and
+  the committed signal is an LSIS-AFS-*style* waveform, not a real LSIS-AFS vector.
+- **Req 7 (interoperability):** 7.1 met (export/import within documented loss, all
+  directions). 7.2 met via the reference definitions and GNU Radio (Route 1 socket_pdu;
+  Route 2 gr-difi's own blocks) — with gr-difi verified at packet/sample-count level
+  rather than end-to-end loss (it uses its own scaling) and its sink flaky. 7.3 met
+  (evidence recorded under `docs/interop/`).
