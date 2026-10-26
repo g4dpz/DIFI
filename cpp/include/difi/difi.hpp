@@ -1244,6 +1244,16 @@ inline std::string sha256_hex(const std::vector<uint8_t>& data) {
 //                 from zero; over-range saturates, never wraps)
 //   int -> float: x = code / FS * full_scale
 // Round trip is NOT lossless; measure_implementation_loss reports the actual error.
+//
+// Reconciliation with the DIFI "Reference Gain and Scaling" guidance (Req 4.3): the DIFI
+// MILCOM 2023 guidance defines digital full-scale as R = 2^(n-1) (128 for 8-bit, 32768
+// for 16-bit). This toolkit uses FS = 2^(n-1) - 1 (the max representable positive code)
+// as the scaling denominator — differing by one code (−0.00027 dB at 16-bit, sub-LSB),
+// chosen for I/Q symmetry and so every code is reachable. This has no bearing on wire
+// conformance: the guidance governs the context-packet Reference Level/Scaling/Gain
+// fields, which we emit as zeros (conformant). difi_full_scale_code() exposes the
+// standard's R for callers wanting dBFS math on the exact reference. See the Rust mapper
+// docs and docs/REFERENCE-GAIN-SCALING-RECONCILIATION.md.
 // ---------------------------------------------------------------------------
 struct ScalingConvention {
   uint8_t bit_depth;
@@ -1254,6 +1264,9 @@ struct ScalingConvention {
   }
 
   int32_t fs_code() const { return sample_range(bit_depth).second; }
+
+  // DIFI / VITA 49 digital full-scale R = 2^(n-1) (one larger than the max positive code).
+  int32_t difi_full_scale_code() const { return 1 << (bit_depth - 1); }
 
   int32_t float_to_code(float x) const {
     auto range = sample_range(bit_depth);

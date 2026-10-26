@@ -166,8 +166,13 @@ implementations, Rust + C++). See `tasks.md`, `IMPLEMENTATIONS.md`, and `docs/in
   dissect cleanly in the DIFI Wireshark dissector, run headless via `tshark`
   (`tests/conformance/wireshark_check.py`, interop.sh §8b).
 - **Req 4 (sample mapping):** 4.1, 4.2 met (documented, deterministic, measured loss).
-  **4.3 partial** — the convention is documented and in the manifest, but not yet
-  reconciled against the DIFI MILCOM reference-gain/scaling guidance.
+  **4.3 met** — reconciled against the DIFI MILCOM "Reference Gain and Scaling" guidance in
+  the `difi-1.2-dataplane` feature (task 9); see
+  `docs/REFERENCE-GAIN-SCALING-RECONCILIATION.md`. Context Reference Level/Scaling/Gain
+  fields are conformant (emitted as zeros, verified against the reference); the
+  quantization denominator is `2^(n-1)−1` vs the standard's `2^(n-1)` by a documented
+  sub-LSB (−0.00027 dB at 16-bit) deliberate choice, with `difi_full_scale_code()` exposing
+  the standard's reference.
 - **Req 5 (transport):** 5.1 (UDP), 5.2 (TCP dev mode), and 5.3 (Stream-ID filter) all
   met. TCP is length-framed and clearly marked non-standard (`TcpSender`/`TcpReceiver`
   in both implementations), with Stream-ID filtering and loopback tests.

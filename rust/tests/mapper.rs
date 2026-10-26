@@ -82,3 +82,20 @@ fn rejects_bad_bit_depth() {
     assert!(ScalingConvention::new(3, 1.0).is_err());
     assert!(ScalingConvention::new(17, 1.0).is_err());
 }
+
+#[test]
+fn difi_full_scale_reconciliation() {
+    // The DIFI/VITA 49 digital full-scale R = 2^(n-1) is one larger than our scaling
+    // denominator FS = 2^(n-1) - 1 (the max representable positive code). Req 4.3.
+    for &depth in &[4u8, 8, 12, 16] {
+        let conv = ScalingConvention::new(depth, 1.0).unwrap();
+        let r = conv.difi_full_scale_code();
+        assert_eq!(r, 1i32 << (depth - 1), "DIFI full-scale R = 2^(n-1)");
+        assert_eq!(r, conv.fs_code() + 1, "R is one above the max positive code");
+        assert_eq!(r, sample_range(depth).1 + 1);
+    }
+    // At 16-bit the difference is sub-LSB: 20*log10(32767/32768) ~= -0.00027 dB.
+    let c16 = ScalingConvention::new(16, 1.0).unwrap();
+    let diff_db = 20.0 * ((c16.fs_code() as f64) / (c16.difi_full_scale_code() as f64)).log10();
+    assert!(diff_db.abs() < 0.001, "full-scale difference must be sub-milli-dB");
+}

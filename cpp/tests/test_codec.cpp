@@ -210,6 +210,21 @@ static void test_mapper_loss_measured() {
   CHECK(report.snr_db > 60.0);
 }
 
+// DIFI "Reference Gain and Scaling" reconciliation (Req 4.3): R = 2^(n-1), one above the
+// max positive code. Mirrors rust mapper test difi_full_scale_reconciliation.
+static void test_mapper_difi_full_scale() {
+  for (uint8_t depth : {uint8_t(4), uint8_t(8), uint8_t(12), uint8_t(16)}) {
+    ScalingConvention conv(depth, 1.0);
+    int32_t r = conv.difi_full_scale_code();
+    CHECK(r == (1 << (depth - 1)));
+    CHECK(r == conv.fs_code() + 1);
+  }
+  ScalingConvention c16(16, 1.0);
+  double diff_db = 20.0 * std::log10(static_cast<double>(c16.fs_code()) /
+                                     static_cast<double>(c16.difi_full_scale_code()));
+  CHECK(std::abs(diff_db) < 0.001);
+}
+
 static void test_mapper_rejects_bad_depth() {
   CHECK(throws([] { ScalingConvention(3, 1.0); }));
   CHECK(throws([] { ScalingConvention(17, 1.0); }));
@@ -677,6 +692,7 @@ int main() {
   test_mapper_endpoints();
   test_mapper_clamps();
   test_mapper_loss_measured();
+  test_mapper_difi_full_scale();
   test_mapper_rejects_bad_depth();
   test_property_iq_round_trip();
   test_fuzz_decoder_never_crashes();

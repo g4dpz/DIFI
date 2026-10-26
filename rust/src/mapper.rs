@@ -27,6 +27,31 @@
 //!
 //! Round-trip is **not** lossless (quantisation); [`measure_implementation_loss`]
 //! reports the actual error so callers never assume zero (Req 4.2).
+//!
+//! ## Reconciliation with the DIFI "Reference Gain and Scaling" guidance (Req 4.3)
+//!
+//! The DIFI Consortium's MILCOM 2023 "Reference Level, Scaling, and Gain" guidance
+//! defines digital **full-scale** for an n-bit signed sample as `R = 2^(n-1)` (e.g. 128
+//! for 8-bit; 32768 for 16-bit), with a full-scale digital sinusoid on the circle
+//! `I² + Q² = R²`. This toolkit's quantization uses `FS = 2^(n-1) − 1` (the largest
+//! *representable positive* code: 127 / 32767) as the scaling denominator instead.
+//!
+//! The two differ by one code at the top of range — for 16-bit, `20·log10(32767/32768) =
+//! −0.00027 dB`, i.e. sub-LSB and signal-insignificant. We keep `2^(n-1) − 1` deliberately:
+//! it is symmetric for I and Q and maps a normalised ±1.0 onto codes that are all
+//! actually representable (the standard's `+R = +32768` is **not** representable — the max
+//! positive code is `+32767` — so a strict-`R` positive full-scale sample must clamp,
+//! while `−R = −32768` is representable; an asymmetry we avoid).
+//!
+//! Crucially, this choice has **no bearing on wire conformance**: the DIFI guidance governs
+//! the *context-packet* Reference Level / Scaling / Gain metadata fields, which this
+//! toolkit emits as zeros (conformant: the guidance states Gain is disregarded/zero-filled
+//! and Scaling is optional/zero-filled when unused). Our packets validate clean against the
+//! DIFI Consortium reference definitions (see `tests/conformance/`). The `full_scale` here
+//! is an application-level float-amplitude reference for the export/import bridge, recorded
+//! in the manifest — not a wire field. [`ScalingConvention::difi_full_scale_code`] exposes
+//! the standard's `R = 2^(n-1)` for callers that want dBFS math on the standard's exact
+//! reference. See `docs/REFERENCE-GAIN-SCALING-RECONCILIATION.md`.
 
 use crate::error::Result;
 use crate::iq::{check_bit_depth, sample_range, IqSample};
@@ -49,9 +74,18 @@ impl ScalingConvention {
         })
     }
 
-    /// Positive full-scale integer code `FS = 2^(n-1) - 1`.
+    /// Positive full-scale integer code `FS = 2^(n-1) - 1` (the scaling denominator this
+    /// toolkit uses; the largest representable positive code).
     pub fn fs_code(&self) -> i32 {
         sample_range(self.bit_depth).1
+    }
+
+    /// The DIFI / VITA 49 definition of digital full-scale, `R = 2^(n-1)` (128 for 8-bit,
+    /// 32768 for 16-bit), per the DIFI "Reference Gain and Scaling" guidance. Exposed for
+    /// callers doing dBFS math on the standard's exact reference; note `+R` is one larger
+    /// than the max representable positive code (`fs_code`). See the module docs.
+    pub fn difi_full_scale_code(&self) -> i32 {
+        1i32 << (self.bit_depth - 1)
     }
 
     /// Map one float component to a clamped, rounded signed-integer code.
