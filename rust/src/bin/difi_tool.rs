@@ -354,7 +354,22 @@ fn export(dest: &str) -> Result<(), String> {
 
 /// Import a DIFI signal (Req 7.1, 7.3): receive -> decode -> inverse-map to float ->
 /// compare against the regenerated original -> report measured loss and PASS/FAIL.
+///
+/// `interop` selects the pass criterion:
+/// - false (default): same-implementation round trip — end-to-end loss must equal the
+///   mapper-only quantisation loss (transport/codec add nothing).
+/// - true: cross-stack interop — recovery need only be within one quantisation step
+///   (1 LSB). A peer whose float math differs by a ULP (e.g. a different libm) can map
+///   an isolated sample to the adjacent code; that is still correct interop.
 fn import(bind_addr: &str) -> Result<(), String> {
+    import_impl(bind_addr, false)
+}
+
+fn import_interop(bind_addr: &str) -> Result<(), String> {
+    import_impl(bind_addr, true)
+}
+
+fn import_impl(bind_addr: &str, interop: bool) -> Result<(), String> {
     let params = SignalParams::default();
     let original = generate_signal(&params);
     let total = original.len();
@@ -399,14 +414,17 @@ fn import(bind_addr: &str) -> Result<(), String> {
     }
     let rms = (sum_sq_err / (total * 2) as f64).sqrt();
 
-    // PASS criteria: all samples recovered, and end-to-end loss does not exceed the
-    // mapper-only quantisation bound (transport/codec added nothing).
+    // PASS criteria depend on the mode (see import_impl docs).
     let one_lsb = EXPORT_FULL_SCALE / conv.fs_code() as f64;
-    let pass = recovered.len() == total
-        && max_abs <= mapper_report.max_abs_error + 1e-12
-        && max_abs <= one_lsb; // within one quantisation step
+    let bound = if interop {
+        one_lsb // cross-stack: within one quantisation step
+    } else {
+        mapper_report.max_abs_error + 1e-12 // same-impl: no worse than our own mapper
+    };
+    let pass = recovered.len() == total && max_abs <= bound;
 
-    println!("IMPORT samples={total} packets_ok");
+    let mode = if interop { "interop (<=1 LSB)" } else { "strict (<=mapper loss)" };
+    println!("IMPORT samples={total} packets_ok  mode={mode}");
     println!("  documented mapping: {EXPORT_BIT_DEPTH}-bit signed, full_scale={EXPORT_FULL_SCALE}, 1 LSB={one_lsb:.3e}");
     println!("  mapper-only loss:  max_abs={:.3e} rms={:.3e}", mapper_report.max_abs_error, mapper_report.rms_error);
     println!("  end-to-end loss:   max_abs={max_abs:.3e} rms={rms:.3e}");
@@ -415,8 +433,7 @@ fn import(bind_addr: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "end-to-end loss {max_abs:.3e} exceeds mapper bound {:.3e} / 1 LSB {one_lsb:.3e}, or sample count mismatch ({}/{total})",
-            mapper_report.max_abs_error,
+            "end-to-end loss {max_abs:.3e} exceeds bound {bound:.3e} ({mode}), or sample count mismatch ({}/{total})",
             recovered.len()
         ))
     }
@@ -428,7 +445,7 @@ fn main() -> ExitCode {
         eprintln!(
             "usage: difi-tool <gen-golden <dir> | dump <file> | map-check <depth> \
 | send <host:port> <count> | recv <bind> <count> \
-| export <host:port> | import <bind> | gen-check \
+| export <host:port> | import <bind> | import-interop <bind> | gen-check \
 | generate <work-dir> | verify-manifest <file>>"
         )
     };
@@ -513,6 +530,19 @@ fn main() -> ExitCode {
         },
         Some("import") => match args.get(2) {
             Some(bind) => match import(bind) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    ExitCode::FAILURE
+                }
+            },
+            None => {
+                usage();
+                ExitCode::FAILURE
+            }
+        },
+        Some("import-interop") => match args.get(2) {
+            Some(bind) => match import_interop(bind) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
                     eprintln!("error: {e}");

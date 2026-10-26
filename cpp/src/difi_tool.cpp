@@ -259,7 +259,7 @@ int export_signal(const std::string& dest) {
   return 0;
 }
 
-int import_signal(const std::string& bind_addr) {
+int import_signal(const std::string& bind_addr, bool interop = false) {
   difi::SignalParams params;
   auto original = difi::generate_signal(params);
   size_t total = original.size();
@@ -301,10 +301,13 @@ int import_signal(const std::string& bind_addr) {
   }
   double rms = std::sqrt(sum_sq_err / (total * 2));
   double one_lsb = EXPORT_FULL_SCALE / conv.fs_code();
-  bool pass = recovered.size() == total &&
-              max_abs <= mapper_report.max_abs_error + 1e-12 && max_abs <= one_lsb;
+  // strict (same-impl): no worse than our own mapper loss. interop (cross-stack):
+  // within one quantisation step (a peer's float math may differ by a ULP).
+  double bound = interop ? one_lsb : (mapper_report.max_abs_error + 1e-12);
+  bool pass = recovered.size() == total && max_abs <= bound;
 
-  std::printf("IMPORT samples=%zu packets_ok\n", total);
+  std::printf("IMPORT samples=%zu packets_ok  mode=%s\n", total,
+              interop ? "interop (<=1 LSB)" : "strict (<=mapper loss)");
   std::printf("  documented mapping: %u-bit signed, full_scale=%g, 1 LSB=%.3e\n",
               EXPORT_BIT_DEPTH, EXPORT_FULL_SCALE, one_lsb);
   std::printf("  mapper-only loss:  max_abs=%.3e rms=%.3e\n",
@@ -390,6 +393,8 @@ int main(int argc, char** argv) {
       return map_check(static_cast<uint8_t>(std::stoul(argv[2])));
     if (argc >= 3 && std::string(argv[1]) == "export") return export_signal(argv[2]);
     if (argc >= 3 && std::string(argv[1]) == "import") return import_signal(argv[2]);
+    if (argc >= 3 && std::string(argv[1]) == "import-interop")
+      return import_signal(argv[2], true);
     if (argc >= 2 && std::string(argv[1]) == "gen-check") return gen_check();
     if (argc >= 3 && std::string(argv[1]) == "generate")
       return generate_signal_cmd(argv[2]);

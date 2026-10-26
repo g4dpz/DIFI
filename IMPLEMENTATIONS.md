@@ -50,6 +50,11 @@ plus an **end-to-end reference-signal export/import** proven across both impleme
   reference decode in our tools, and our packets parse+validate in the reference.
   Evidence: `docs/interop/CROSS-DECODE-EVIDENCE.md`. (This is the certification
   reference, not gr-difi; see the caveat there.)
+- **GNU Radio interop** (Req 7.2, Route 1): a GNU Radio flowgraph exchanges a full DIFI
+  stream with both our tools over UDP (`network.socket_pdu`), both directions, recovered
+  within 1 LSB. GNU Radio's runtime + UDP block are in the path; the DIFI codec on that
+  side is the Consortium reference (gr-difi — Route 2 — is future work). Harness:
+  `tests/gnuradio/`; evidence: `docs/interop/GNURADIO-EVIDENCE.md`.
 
 - **Signal generator + manifest writer** (task 11 / Req 6): a deterministic generator
   reproduces a reference signal from committed parameters; `generate` writes the large
