@@ -74,6 +74,9 @@ cmake -S cpp -B cpp/build && cmake --build cpp/build && ctest --test-dir cpp/bui
 tests/conformance/setup.sh
 ```
 
+See **[`QUICKSTART.md`](QUICKSTART.md)** for a step-by-step walkthrough (clone → build →
+exchange a DIFI packet → end-to-end signal → conformance).
+
 New to DIFI/VITA 49.2? Read **[`docs/reference/DIFI-VITA49-PRIMER.md`](docs/reference/DIFI-VITA49-PRIMER.md)** first.
 
 ## Open decisions (for the community)
