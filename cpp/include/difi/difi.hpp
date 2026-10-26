@@ -302,7 +302,8 @@ constexpr uint32_t SHORT_FORM = 31;
 constexpr uint32_t REFERENCE_POINT = 30;
 constexpr uint32_t SAMPLE_RATE = 21;
 constexpr uint32_t TIMESTAMP_ADJ = 20;
-constexpr uint32_t CIF1_PRESENT = 2;
+// bit 1: CIF1 present (per the DIFI Consortium v1.2.1 command reference, not bit 2).
+constexpr uint32_t CIF1_PRESENT = 1;
 }  // namespace cif0
 
 // CIF1 bit positions.
@@ -976,7 +977,9 @@ class StreamEncoder {
                                                    double sample_rate_hz, double gain_db,
                                                    uint32_t integer_seconds,
                                                    uint64_t fractional_sample_count) const {
-    Header h = header(constants::packet_type::CONTEXT, constants::tsm::CONTEXT,
+    // Per the v1.2.1 reference, Packet Class 0x0003 requires TSM=0 (fine), unlike the
+    // standard-flow context (0x0001) which uses TSM=1.
+    Header h = header(constants::packet_type::CONTEXT, constants::tsm::DATA,
                       constants::information_class::DATA_PLANE_FLOW_CONTROL,
                       constants::packet_class::SAMPLE_COUNT_SIGNAL_CONTEXT, 0,
                       integer_seconds, fractional_sample_count);

@@ -151,7 +151,12 @@ fn golden_flow_control(kind: FlowControlKind) -> TimingFlowControlPacket {
         },
         seq_num: 0,
         stream_id: STREAM_ID,
-        information_class: information_class::DATA_PLANE_FLOW_CONTROL,
+        // Info Class pairs with the flow-control Packet Class per the v1.2.1 reference:
+        // 0x0002 <-> 0x0005 (sample count), 0x0003 <-> 0x0006 (real-time TSF).
+        information_class: match kind {
+            FlowControlKind::SampleCount => information_class::DATA_PLANE_FLOW_CONTROL,
+            FlowControlKind::RealTime => information_class::DATA_PLANE_FLOW_CONTROL_RT,
+        },
         packet_class: kind.packet_class(),
         integer_seconds: INT_SECONDS,
         fractional_seconds: frac,

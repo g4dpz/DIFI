@@ -90,11 +90,13 @@ field (TSF = sample count, `0b01`), not picoseconds.
 
 ### `sample_count_context_16bit.difi.bin` (108 bytes, 27 words)
 
-SHA-256: `84a57963fe820846a47cedc8a33c89567aedbebf75b02418ea905b2883cc57fa`
+SHA-256: `91e6d1fdc03a4024dac5b9fedc6372564ce6e5759948bfc2281b6687e7c65d12`
 
 Byte-identical to `signal_context_16bit.difi.bin` **except** word 0 (TSF nibble = sample
-count) and word 3 (Information Class `0x0002` "Data Plane plus Flow Control", Packet Class
-`0x0003`). Same RF/bandwidth/sample-rate/gain/bit-depth values. Fractional field = `0`.
+count, **TSM = 0** per the v1.2.1 reference for class `0x0003`) and word 3 (Information
+Class `0x0002`, Packet Class `0x0003`). Same RF/bandwidth/sample-rate/gain/bit-depth
+values. Fractional field = `0`. Validates clean against the DIFI Consortium v1.2.1
+`difi_context_v1_2_1` reference.
 
 ### `sample_count_data_16bit.difi.bin` (60 bytes)
 
@@ -106,12 +108,13 @@ Class `0x0002`, TSF = sample count, fractional field = sample count `4096`.
 ### `timing_flow_control_sc.difi.bin` (84 bytes, 21 words) — Packet Class `0x0005`
 ### `timing_flow_control_rt.difi.bin` (84 bytes, 21 words) — Packet Class `0x0006`
 
-SHA-256 (sc): `101e1277249f85c2ba3787162ae2fe46c022a290240541f24118eb2aaf4fec5b`
-SHA-256 (rt): `adf7f8c7ccf38004b026cce276a6f66e89a1d453c73b1b84cfb4c764caca7d4d`
+SHA-256 (sc): `25cdc3322933a28d88585d0a5cf62c7ba0f467d8961f1cd0d64fea8d010c3e99`
+SHA-256 (rt): `da17d53d19e68050dd579bb78219567336fdba395c294ff8770611a6147aee9e`
 
-VITA 49.2 Command Packets (VRT type `0x6`), Information Class `0x0002`. The two differ
-only in Packet Class and the TSF interpretation (`0x0005` sample-count vs `0x0006`
-real-time ps). Field values:
+VITA 49.2 Command Packets (VRT type `0x6`). Per the v1.2.1 reference, the Information
+Class pairs with the Packet Class: **`0x0005` uses Information Class `0x0002`** (and
+TSF = sample count), **`0x0006` uses Information Class `0x0003`** (and TSF = real-time ps).
+Both validate clean against `difi_command_v1_2_1`. Field values:
 
 | Field | Value |
 |-------|-------|
@@ -124,9 +127,10 @@ real-time ps). Field values:
 | Buffer Size | `1048576` bytes (`1 << 20`) |
 | Buffer Status | Near-Full set; buffer level `0x00300000` |
 
-CIF0 declares Reference Point + Sample Rate + Timestamp Adjustment + CIF1 present; CIF1
-declares Buffer Size present. Word order: CAM(8), Message/Controllee/Controller IDs
-(9-11), CIF0(12), CIF1(13), Reference Point(14), Sample Rate(15-16), Timestamp
+CIF0 declares Reference Point (bit 30) + Sample Rate (bit 21) + Timestamp Adjustment
+(bit 20) + CIF1 present (**bit 1**, per the v1.2.1 reference) → CIF0 = `0x40300002`; CIF1
+declares Buffer Size present (bit 1). Word order: CAM(8), Message/Controllee/Controller
+IDs (9-11), CIF0(12), CIF1(13), Reference Point(14), Sample Rate(15-16), Timestamp
 Adjustment(17-18), Buffer Size(19-20), Buffer Status(21).
 
 ## Regenerating

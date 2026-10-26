@@ -8,7 +8,11 @@ the external oracle that establishes wire-level conformance (Req 3.2).
 
 - `certify.py` — **our** harness. It imports the DIFI Consortium's reference packet
   definitions and runs their field-level `validate()` methods against our golden
-  packets, reporting pass/fail per packet (task 10 / Req 3.2).
+  packets, reporting pass/fail per packet (task 10 / Req 3.2). Covers the DIFI **1.1**
+  data-plane packets (`difi_*_v1_1`) **and the DIFI 1.2 additions** — the sample-count
+  Data/Context twins and the Timing Flow Control packets — against the Consortium's
+  `difi_data_v1_2_1`, `difi_context_v1_2_1` and `difi_command_v1_2_1` reference
+  definitions (`difi-1.2-dataplane` task 8).
 - `cross_decode.py` — **our** harness for bidirectional cross-decode against the
   reference (task 13 / Req 7.2): the reference *builds* packets that our tools decode,
   and our tools' packets are parsed+validated by the reference. See
@@ -73,6 +77,23 @@ layout; the golden packets were regenerated and now pass this oracle.
 
 Takeaway: two independent implementations agreeing with each other proves *interop*, not
 *standards conformance*. Only an external reference oracle proves the latter.
+
+### And again for DIFI 1.2 (task 8)
+
+Extending the oracle to the DIFI 1.2 packets (`difi_*_v1_2_1`) caught **three** more
+conformance bugs that both implementations shared — byte-identical with each other, but
+wrong against the standard:
+
+1. **CIF0 CIF1-present bit.** We set bit 2; the v1.2.1 command reference requires **bit 1**
+   (CIF0 `0x40300002`, not `0x40300004`). Our field-level transcription had it as bit 2.
+2. **Information Class / Packet Class pairing.** The Timing Flow Control real-time packet
+   (`0x0006`) must use Information Class `0x0003`, not `0x0002`; `0x0005` uses `0x0002`.
+   We used `0x0002` for both.
+3. **Sample Count Signal Context TSM.** Packet Class `0x0003` requires **TSM = 0** (fine),
+   unlike the standard-flow context (`0x0001`) which uses TSM = 1. We emitted TSM = 1.
+
+All three were fixed in the shared command core / encoders and the golden packets
+regenerated; all seven packets now validate clean against the Consortium reference.
 
 ## Still not covered
 

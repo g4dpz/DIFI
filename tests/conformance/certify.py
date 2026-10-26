@@ -41,6 +41,17 @@ from packet_definitions.difi_context_v1_1 import difi_context_definition
 from packet_definitions.difi_data_v1_1 import difi_data_definition
 from packet_definitions.difi_version_v1_1 import difi_version_definition
 
+# DIFI 1.2.1 reference definitions for the 1.2 additions (fetched by setup.sh). Optional:
+# if the directory predates them, the 1.2 packets are reported as skipped rather than
+# failing the run.
+try:
+    from packet_definitions.difi_data_v1_2_1 import difi_data_definition as difi_data_v12
+    from packet_definitions.difi_context_v1_2_1 import difi_context_definition as difi_context_v12
+    from packet_definitions.difi_command_v1_2_1 import difi_command_definition as difi_command_v12
+    _HAVE_V12 = True
+except Exception:
+    _HAVE_V12 = False
+
 
 def check_fixed_size(name, definition, data):
     """Context and version packets have a fixed size; data packets do not."""
@@ -79,6 +90,7 @@ def main():
     d = sys.argv[1]
 
     cases = [
+        # DIFI 1.1 data plane.
         ("Signal Context", difi_context_definition,
          os.path.join(d, "signal_context_16bit.difi.bin"), True, None),
         ("Version Context", difi_version_definition,
@@ -86,6 +98,19 @@ def main():
         ("Signal Data", difi_data_definition,
          os.path.join(d, "signal_data_16bit.difi.bin"), False, validate_data_size),
     ]
+
+    # DIFI 1.2 additions, validated against the v1.2.1 reference definitions when present.
+    if _HAVE_V12:
+        cases += [
+            ("Sample Count Signal Context", difi_context_v12,
+             os.path.join(d, "sample_count_context_16bit.difi.bin"), True, None),
+            ("Sample Count Signal Data", difi_data_v12,
+             os.path.join(d, "sample_count_data_16bit.difi.bin"), False, validate_data_size),
+            ("Timing Flow Control (sample count)", difi_command_v12,
+             os.path.join(d, "timing_flow_control_sc.difi.bin"), True, None),
+            ("Timing Flow Control (real-time)", difi_command_v12,
+             os.path.join(d, "timing_flow_control_rt.difi.bin"), True, None),
+        ]
 
     overall_ok = True
     for label, definition, path, fixed, extra in cases:

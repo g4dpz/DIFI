@@ -208,7 +208,9 @@ impl StreamEncoder {
     ) -> Result<Vec<u8>> {
         let mut header = self.header(
             packet_type::CONTEXT,
-            tsm::CONTEXT,
+            // Per the v1.2.1 reference, Packet Class 0x0003 requires TSM=0 (fine), unlike
+            // the standard-flow context (0x0001) which uses TSM=1.
+            tsm::DATA,
             information_class::DATA_PLANE_FLOW_CONTROL,
             packet_class::SAMPLE_COUNT_SIGNAL_CONTEXT,
             0,

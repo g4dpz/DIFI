@@ -154,8 +154,9 @@ pub mod cif0 {
     pub const SAMPLE_RATE: u32 = 21;
     /// bit 20: Timestamp Adjustment field present.
     pub const TIMESTAMP_ADJ: u32 = 20;
-    /// bit 2: CIF1 present.
-    pub const CIF1_PRESENT: u32 = 2;
+    /// bit 1: CIF1 present. (Confirmed against the DIFI Consortium v1.2.1 command
+    /// reference definition, which requires CIF0 bit 1 — not bit 2 — for CIF1-present.)
+    pub const CIF1_PRESENT: u32 = 1;
 }
 
 /// CIF1 bit positions used by the DIFI command/link-establishment packets.

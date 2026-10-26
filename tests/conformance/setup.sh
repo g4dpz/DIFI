@@ -24,7 +24,9 @@ VENV="${DIFI_VENV:-/tmp/difi-venv}"
 echo "Fetching DIFI Consortium reference definitions (commit ${DIFI_CERT_COMMIT:0:12})..."
 mkdir -p "$DEFS_DIR"
 : > "$DEFS_DIR/__init__.py"
-for f in difi_context_v1_1.py difi_data_v1_1.py difi_version_v1_1.py construct_custom_types.py; do
+for f in difi_context_v1_1.py difi_data_v1_1.py difi_version_v1_1.py \
+         difi_context_v1_2_1.py difi_data_v1_2_1.py difi_command_v1_2_1.py \
+         construct_custom_types.py; do
   url="$DIFI_CERT_REPO/$DIFI_CERT_COMMIT/packet_definitions/$f"
   if ! curl -sfL "$url" -o "$DEFS_DIR/$f"; then
     echo "ERROR: could not fetch $f from $url" >&2

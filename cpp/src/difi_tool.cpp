@@ -38,7 +38,12 @@ difi::TimingFlowControlPacket golden_flow_control(difi::FlowControlKind kind) {
                                                               : c::tsf::REAL_TIME_PS;
   p.header.seq_num = 0;
   p.header.stream_id = STREAM_ID;
-  p.header.information_class = c::information_class::DATA_PLANE_FLOW_CONTROL;
+  // Info Class pairs with the flow-control Packet Class per the v1.2.1 reference:
+  // 0x0002 <-> 0x0005 (sample count), 0x0003 <-> 0x0006 (real-time TSF).
+  p.header.information_class =
+      (kind == difi::FlowControlKind::SampleCount)
+          ? c::information_class::DATA_PLANE_FLOW_CONTROL
+          : c::information_class::DATA_PLANE_FLOW_CONTROL_RT;
   p.header.packet_class = difi::flow_control_packet_class(kind);
   p.header.integer_seconds = INT_SECONDS;
   p.header.fractional_seconds =
