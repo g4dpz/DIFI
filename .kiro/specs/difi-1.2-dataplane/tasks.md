@@ -135,7 +135,7 @@ The authoritative Command-Packet layout is in the gitignored transcription
   - _Requirements: 7.1, 7.5_
   - _Files: `rust/src/mapper.rs` (if adjusted), `docs/`, signal manifest._
 
-- [ ] 10. Close 1.1 gap — canonical dataset hosting decision
+- [x] 10. Close 1.1 gap — canonical dataset hosting decision
   - Make and record an explicit decision: either wire up a real externally-hosted canonical
     dataset (Zenodo/Release) referenced by SHA-256 from its manifest, or formally keep the
     reproducible AFS-style waveform as the committed reference with documented rationale.
