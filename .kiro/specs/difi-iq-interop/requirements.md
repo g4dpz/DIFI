@@ -161,9 +161,10 @@ implementations, Rust + C++). See `tasks.md`, `IMPLEMENTATIONS.md`, and `docs/in
 - **Req 1 (decode), Req 2 (encode):** met. 2.5 now satisfied both ways — the encoder
   rejects an oversized single packet AND offers `encode_data_segmented` that splits a
   large buffer across multiple Signal Data packets with running sequence numbers.
-- **Req 3 (conformance):** 3.2, 3.3, 3.4 met against the DIFI Consortium reference
-  `construct` definitions. **3.1 (Wireshark dissector) not exercised** — a manual GUI
-  step; the construct defs encode the same wire contract.
+- **Req 3 (conformance):** 3.1, 3.2, 3.3, 3.4 all met. 3.2/3.3/3.4 against the DIFI
+  Consortium reference `construct` definitions; **3.1 now met too** — our packets
+  dissect cleanly in the DIFI Wireshark dissector, run headless via `tshark`
+  (`tests/conformance/wireshark_check.py`, interop.sh §8b).
 - **Req 4 (sample mapping):** 4.1, 4.2 met (documented, deterministic, measured loss).
   **4.3 partial** — the convention is documented and in the manifest, but not yet
   reconciled against the DIFI MILCOM reference-gain/scaling guidance.

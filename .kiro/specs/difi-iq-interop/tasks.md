@@ -93,12 +93,12 @@ the requirements it satisfies. DIFI 1.1 is the target; keep hooks for 1.2.1.
     emit a capture for the DIFI Wireshark dissector.
   - Record pass/fail evidence.
   - _Requirements: 3.1, 3.2, 3.3_
-  - **Done** (mostly). `tests/conformance/certify.py` validates our packets against the
-    DIFI Consortium reference `construct` definitions (Req 3.2); `cross_decode.py` covers
-    reference→ours decode (Req 3.3). Defs fetched on demand, pinned, not vendored (no
-    licence to redistribute). **Req 3.1 (Wireshark dissector capture) NOT run** — needs a
-    live Wireshark + loopback capture (manual GUI step). The construct defs encode the
-    same wire contract the dissector does, so passing them is strong evidence.
+  - **Done.** `tests/conformance/certify.py` validates our packets against the DIFI
+    Consortium reference `construct` definitions (Req 3.2); `cross_decode.py` covers
+    reference→ours decode (Req 3.3). **Req 3.1 also done:** `wireshark_check.py` runs the
+    DIFI `difi-dissector.lua` headless via `tshark` over a pcap of our packets and
+    asserts the fields dissect (interop.sh §8b). Defs + dissector fetched on demand,
+    pinned, not vendored (no licence to redistribute).
 
 - [x] 11. Signal generators + manifest writer
   - Generators reproduce reference signals from committed params; manifest writer emits
@@ -153,9 +153,6 @@ Build/test: `cd rust && cargo test`; `cmake -S cpp -B cpp/build && cmake --build
 && ctest --test-dir cpp/build`; `./tests/interop.sh` (9 sections).
 
 ### Known gaps (deferred, not silently dropped)
-- **Req 3.1 — Wireshark dissector capture:** not run (manual/tooling step; the construct
-  conformance check covers the same wire contract — Req 3.2/3.3 done). The DIFI `.lua`
-  dissector exists in the cert repo and could be run headless via `tshark`.
 - **Req 4.3 — scaling vs DIFI MILCOM reference-gain guidance:** convention is documented
   and pinned, but not yet reconciled against that external guidance.
 - **Req 6.4 / DQ-4 — canonical dataset hosting:** manifest records SHA-256 for external

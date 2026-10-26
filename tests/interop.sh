@@ -189,6 +189,25 @@ else
   echo "  skip (conformance venv not found; run tests/conformance/setup.sh)"
 fi
 
+echo "== 8b. Wireshark dissector conformance (Req 3.1) =="
+TSHARK="${DIFI_TSHARK:-/Applications/Wireshark.app/Contents/MacOS/tshark}"
+if [ -x "$TSHARK" ] && [ -f "$ROOT/tests/conformance/.difi-cert/wireshark-dissector/difi-dissector.lua" ]; then
+  for tool_label in "rust:$RUST_TOOL" "cpp:$CPP_TOOL"; do
+    label="${tool_label%%:*}"; tool="${tool_label#*:}"
+    gdir="$TMP/ws-$label"
+    "$tool" gen-golden "$gdir" >/dev/null
+    if python3 "$ROOT/tests/conformance/wireshark_check.py" "$gdir" >/dev/null 2>&1; then
+      echo "  ok  $label packets dissect cleanly in the DIFI Wireshark dissector"
+    else
+      echo "FAIL: $label packets rejected by the DIFI Wireshark dissector"
+      python3 "$ROOT/tests/conformance/wireshark_check.py" "$gdir" || true
+      exit 1
+    fi
+  done
+else
+  echo "  skip (tshark or DIFI dissector not found; see tests/conformance/README.md)"
+fi
+
 echo "== 9. cross-decode vs DIFI reference (both directions, Req 7.2) =="
 if [ -x "$VENV_PY" ] && "$VENV_PY" -c "import construct" 2>/dev/null; then
   for tool_label in "rust:$RUST_TOOL" "cpp:$CPP_TOOL"; do

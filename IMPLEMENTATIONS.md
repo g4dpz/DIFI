@@ -44,9 +44,10 @@ plus an **end-to-end reference-signal export/import** proven across both impleme
 - **Sample mapper** (task 8 / Req 4): `ScalingConvention`, `float_to_difi`,
   `difi_to_float`, and `measure_implementation_loss`. See the convention below.
 
-- **DIFI Consortium conformance** (task 10 / Req 3.2): both implementations' Signal
+- **DIFI Consortium conformance** (task 10 / Req 3.1, 3.2): both implementations' Signal
   Context (27 words), Version Context (11 words) and Signal Data packets parse and
-  validate clean against the Consortium's `construct` definitions. See
+  validate clean against the Consortium's `construct` definitions, and **dissect cleanly
+  in the DIFI Wireshark dissector** (run headless via `tshark`). See
   `tests/conformance/`.
 - **Cross-decode vs an independent implementation** (task 13 / Req 7.2, 7.3): both
   directions pass against the DIFI Consortium reference code — packets *built* by the

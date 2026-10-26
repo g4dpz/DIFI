@@ -13,7 +13,14 @@ the external oracle that establishes wire-level conformance (Req 3.2).
   reference (task 13 / Req 7.2): the reference *builds* packets that our tools decode,
   and our tools' packets are parsed+validated by the reference. See
   `docs/interop/CROSS-DECODE-EVIDENCE.md`.
-- `setup.sh` — fetches the Consortium definitions on demand and builds the venv.
+- `wireshark_check.py` — **our** harness for the DIFI Wireshark dissector check
+  (Req 3.1): wraps our packets in a pcap (`text2pcap -u`) and runs `tshark` headless
+  with the Consortium `difi-dissector.lua`, asserting each packet dissects as DIFI with
+  the expected fields. Needs `tshark`/`text2pcap` (Wireshark); auto-detected (the macOS
+  app bundle at `/Applications/Wireshark.app/Contents/MacOS/`), override with
+  `DIFI_TSHARK`. The built-in `vrt` dissector is disabled so the DIFI UDP heuristic wins.
+- `setup.sh` — fetches the Consortium definitions **and** the Wireshark dissector on
+  demand, and builds the venv.
 
 ## Third-party code is fetched, not committed
 

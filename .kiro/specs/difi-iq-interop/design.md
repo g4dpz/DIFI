@@ -143,8 +143,9 @@ what the certifier checks.*
   (`certify.py`, Req 3.2).
 - Reference-built packets decode in our tools; both directions
   (`cross_decode.py`, Req 3.3, 7.2).
-- DIFI Wireshark dissector capture (Req 3.1): **not run** — manual GUI step; the
-  construct defs encode the same wire contract.
+- DIFI Wireshark dissector check (Req 3.1): **done** — `wireshark_check.py` runs the
+  Consortium `difi-dissector.lua` headless via `tshark` over a pcap of our packets and
+  asserts they dissect as DIFI with the right fields.
 - Golden packets committed as fixtures (Req 3.4).
 - Also: GNU Radio interop (socket_pdu Route 1, and gr-difi's own blocks Route 2) —
   see `docs/interop/`.
@@ -173,7 +174,8 @@ what the certifier checks.*
 - **Golden:** committed KB-scale packets with documented field values as regression
   fixtures.
 - **Conformance:** our packets validate against the DIFI Consortium reference `construct`
-  definitions (Req 3.2, 3.3). Wireshark dissector (Req 3.1) not run — manual step.
+  definitions (Req 3.2, 3.3) and dissect cleanly in the DIFI Wireshark dissector via
+  `tshark` (Req 3.1).
 - **Interop:** the two implementations exchange I/Q (byte-identical generation,
   cross-decode, live UDP, export/import); cross-decode with the reference defs, GNU Radio
   (socket_pdu), and gr-difi's own blocks (Req 7.2) — all recorded under `docs/interop/`.

@@ -32,6 +32,16 @@ for f in difi_context_v1_1.py difi_data_v1_1.py difi_version_v1_1.py construct_c
 done
 echo "  definitions cached at $DEFS_DIR (gitignored)"
 
+# Also fetch the DIFI Wireshark dissector (for the Req 3.1 check via tshark).
+DISS_DIR="$HERE/.difi-cert/wireshark-dissector"
+mkdir -p "$DISS_DIR"
+if curl -sfL "$DIFI_CERT_REPO/$DIFI_CERT_COMMIT/wireshark-dissector/difi-dissector.lua" \
+     -o "$DISS_DIR/difi-dissector.lua"; then
+  echo "  Wireshark dissector cached at $DISS_DIR (gitignored)"
+else
+  echo "  WARN: could not fetch the Wireshark dissector (the tshark check will skip)" >&2
+fi
+
 echo "Creating venv and installing 'construct'..."
 python3 -m venv "$VENV"
 "$VENV/bin/pip" install -q --upgrade pip
