@@ -170,7 +170,7 @@ The authoritative Command-Packet layout is in the gitignored transcription
   - _Requirements: 6.2, 7.5_
   - _Files: `IMPLEMENTATIONS.md`, `README.md`, `docs/interop/`._
 
-- [ ] 14. Property/fuzz hardening (stretch)
+- [x] 14. Property/fuzz hardening (stretch)
   - Property test: random valid flow-control configs round-trip bit-exact in both
     implementations. Fuzz the command/flow-control decoders: malformed buffers only ever
     raise typed errors, never panic/crash. Run the C++ fuzz clean under ASan+UBSan.

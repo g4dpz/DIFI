@@ -20,10 +20,15 @@ station (ESTRACK).
 
 ## What this project provides
 
-**Two independent implementations** of the DIFI 1.1 profile — one in **Rust** (`rust/`),
-one in **C++17** (`cpp/`) — that encode/decode the three DIFI 1.1 packet types (Signal
-Data, Signal Context, Version Context) over UDP. Built as two separate implementations
-deliberately, so interoperability is *demonstrated*, not asserted.
+**Two independent implementations** of DIFI — one in **Rust** (`rust/`), one in **C++17**
+(`cpp/`) — that encode/decode the DIFI packet types over UDP. Built as two separate
+implementations deliberately, so interoperability is *demonstrated*, not asserted.
+
+They cover the **DIFI 1.1 data plane** (Signal Data, Signal Context, Version Context) and
+the **DIFI 1.2 data-plane additions** — sample-count classes (`0x0002`/`0x0003`) and
+**Timing Flow Control** packets (`0x0005`/`0x0006`), built on a shared Command-Packet core.
+The 1.2 work is the foundation for the forthcoming **DIFI 1.3.0** link-establishment
+control plane — the version ESA's ESTRACK will use (build order: 1.1 → 1.2 → 1.3.0).
 
 Validated — all automated and reproducible:
 
@@ -68,7 +73,13 @@ cd rust && cargo test && cd ..
 cmake -S cpp -B cpp/build && cmake --build cpp/build && ctest --test-dir cpp/build
 
 # Cross-implementation interop (builds both tools; some sections need optional tooling)
+# Covers 1.1 + 1.2: golden byte-identity, cross-decode, live UDP, flow control (§3c),
+# and conformance vs the DIFI v1.2.1 reference + Wireshark dissector.
 ./tests/interop.sh
+
+# DIFI 1.2 flow control, live Rust<->C++ (source streams data, sink replies w/ flow control):
+#   difi-tool fc-sink <data-bind> <fc-dest> <count>   # one end
+#   difi-tool fc-source <data-dest> <fc-bind> <count> # the other
 
 # Optional external checks (fetch the DIFI reference defs + dissector, need Python/tshark)
 tests/conformance/setup.sh
