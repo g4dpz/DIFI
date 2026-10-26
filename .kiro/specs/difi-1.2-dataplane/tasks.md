@@ -43,16 +43,35 @@ The authoritative Command-Packet layout is in the gitignored transcription
   - Implement the Timing Flow Control packet model on the `command` core: full 21-word base
     layout, Buffer Status flags (OF/NF/NE/UF), and the class-specific TSF interpretation
     (`0x0005` sample-count, `0x0006` real-time ps).
+  - NOTE (decoder gate — from the 1.1-code review): the existing `Decoder` refuses to
+    decode a Signal Data packet until it has seen a Signal Context for that Stream ID (it
+    tracks `bit_depth_by_stream`). Command / flow-control packets carry no sample bit depth
+    and MUST decode regardless of stream state. When adding the `0x0005`/`0x0006` dispatch
+    arm, route command packets to the flow-control decoder **before** / independently of
+    the bit-depth gate, so a flow-control packet decodes even when no Signal Context has
+    been seen for its stream. Do not weaken the gate for Signal Data itself. (The existing
+    `set_bit_depth()` hook is the seam the 1.3.0 state machine will use to seed format from
+    negotiation — leave it in place.)
   - Unit test: pack→unpack round-trip for both classes incl. Buffer Status flags and TSF
-    mode; fail-closed on OUI/class/size mismatch; the right TSF interpretation per class.
+    mode; fail-closed on OUI/class/size mismatch; the right TSF interpretation per class; a
+    flow-control packet decodes with no prior Signal Context for its stream.
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4_
-  - _Files: `rust/src/flowcontrol.rs`, `cpp/include/difi/difi.hpp` (`difi::flowcontrol`)._
+  - _Files: `rust/src/flowcontrol.rs`, `rust/src/decoder.rs`, `cpp/include/difi/difi.hpp`
+    (`difi::flowcontrol`, decoder)._
 
 - [ ] 4. Sample-count Data/Context twins (`0x0002`/`0x0003`) + Information-Class routing
   - Implement Sample Count Signal Data (`0x0002`) and Sample Count Signal Context
     (`0x0003`) as thin variants of the existing Signal Data / Signal Context codecs: same
     field layout, class code set to `0x0002`/`0x0003`, TSF set to sample-count mode. Add
     matching encode support.
+  - NOTE (codec reuse — from the 1.1-code review): `SignalDataPacket::unpack` currently
+    hard-rejects any `packet_type != SIGNAL_DATA`, and `SignalContextPacket::unpack`
+    hard-rejects any `packet_class != SIGNAL_CONTEXT` (same assertions in the C++
+    `difi.hpp`). To reuse these codecs for the sample-count twins, relax those two checks to
+    accept the twin class (e.g. an allowed-class predicate), rather than copy-pasting the
+    codec. Keep them fail-closed for genuinely wrong classes. This is the only edit to
+    existing 1.1 codec lines; it must not change behaviour for the `0x0000`/`0x0001`
+    inputs (covered by the task-5 regression gate).
   - Extend the decoder dispatch (table-driven) to recognize Information Classes `0x0002`/
     `0x0003`/`0x0004` and Packet Classes `0x0002`/`0x0003`, routing each by Packet Class.
     Confirm Packet Class `0x0004` still routes to the existing Version Context path and is
