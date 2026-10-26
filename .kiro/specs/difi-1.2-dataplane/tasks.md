@@ -162,7 +162,7 @@ The authoritative Command-Packet layout is in the gitignored transcription
   - _Requirements: 7.4, 7.5_
   - _Files: `.kiro/specs/difi-iq-interop/design.md`._
 
-- [ ] 13. Documentation + status sweep
+- [x] 13. Documentation + status sweep
   - Update `IMPLEMENTATIONS.md` / `README` to describe the 1.2 data plane and how to run
     the new packets; record the 1.2 interop evidence; refresh the "Implementation status"
     and "Known gaps" so every item is either closed or re-deferred with a specific reason.
