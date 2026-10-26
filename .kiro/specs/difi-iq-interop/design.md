@@ -42,10 +42,14 @@ recorded here; see `tasks.md` and `IMPLEMENTATIONS.md` for the implementing work
   data plane and the shared Command-Packet core) and `difi-link-establishment-1.3.0` (the
   1.3.0 control plane). Build order: 1.1 (this feature, shipped) → 1.2 → 1.3.0 = full DIFI
   1.3.0. So "1.1 only" describes this feature's scope, not a decision to stop at 1.1.
-- **DQ-4 Canonical dataset hosting — OPEN.** The manifest records a SHA-256 so large data
-  can be hosted externally (Zenodo vs Release assets), but no real canonical dataset is
-  wired up yet; the committed reference is a reproducible LSIS-AFS-*style* waveform, not
-  a real LSIS-AFS vector. Policy question, not code.
+- **DQ-4 Canonical dataset hosting — RESOLVED** (in the `difi-1.2-dataplane` feature,
+  task 10). Decision: the committed reference is the reproducible, generator-backed
+  `afs-style-tone-4096` waveform (no external host needed — it is regenerated identically
+  on demand); external hosting by SHA-256 (Zenodo or a Release asset) is the documented,
+  ready mechanism for a real canonical vector when one is contributed, not wired up now
+  because no real vector is in hand. The manifest's `sha256` + `byte_size` is the binding
+  hosting contract; adding a real vector is purely additive. Rationale and procedure:
+  `docs/DATASET-HOSTING-DECISION.md`.
 
 These map to the "Open questions" in the primer and the proposal email.
 
