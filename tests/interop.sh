@@ -100,6 +100,34 @@ run_tcp_case "cpp  -> cpp"  $((TCP_PORT_BASE + 1)) "$CPP_TOOL"  "$CPP_TOOL"
 run_tcp_case "cpp  -> rust" $((TCP_PORT_BASE + 2)) "$RUST_TOOL" "$CPP_TOOL"
 run_tcp_case "rust -> cpp"  $((TCP_PORT_BASE + 3)) "$CPP_TOOL"  "$RUST_TOOL"
 
+echo "== 3c. flow-controlled UDP interop (DIFI 1.2, all four directions, Req 5.1/5.3) =="
+# A source streams Signal Data to the sink; the sink replies with a Timing Flow Control
+# packet reporting buffer state; the source decodes it. Assert the source's decoded
+# flow-control line equals the line the sink reported sending (same fields both ends).
+FC_PORT_BASE=54960
+run_fc_case() {
+  local label="$1" dport="$2" fport="$3" source_tool="$4" sink_tool="$5"
+  local sink_out source_out
+  local tmp_sink; tmp_sink="$(mktemp)"
+  # Sink binds the data port and replies to the flow-control port.
+  "$sink_tool" fc-sink "127.0.0.1:$dport" "127.0.0.1:$fport" "$COUNT" >"$tmp_sink" 2>&1 &
+  local sink_pid=$!
+  sleep 0.3
+  source_out="$("$source_tool" fc-source "127.0.0.1:$dport" "127.0.0.1:$fport" "$COUNT" 2>&1)"
+  wait $sink_pid
+  sink_out="$(cat "$tmp_sink")"; rm -f "$tmp_sink"
+  if [ -n "$source_out" ] && [ "$source_out" = "$sink_out" ]; then
+    echo "  ok  $label  (source decoded the sink's flow-control: $source_out)"
+  else
+    echo "FAIL: $label (flow control) — sink sent: '$sink_out' ; source got: '$source_out'"
+    exit 1
+  fi
+}
+run_fc_case "rust-src -> rust-sink" $((FC_PORT_BASE + 0)) $((FC_PORT_BASE + 1)) "$RUST_TOOL" "$RUST_TOOL"
+run_fc_case "cpp-src  -> cpp-sink"  $((FC_PORT_BASE + 2)) $((FC_PORT_BASE + 3)) "$CPP_TOOL"  "$CPP_TOOL"
+run_fc_case "rust-src -> cpp-sink"  $((FC_PORT_BASE + 4)) $((FC_PORT_BASE + 5)) "$RUST_TOOL" "$CPP_TOOL"
+run_fc_case "cpp-src  -> rust-sink" $((FC_PORT_BASE + 6)) $((FC_PORT_BASE + 7)) "$CPP_TOOL"  "$RUST_TOOL"
+
 echo "== 4. sample-mapper agreement (float -> DIFI integer) =="
 for d in 4 8 12 16; do
   if diff <("$RUST_TOOL" map-check "$d") <("$CPP_TOOL" map-check "$d") >/dev/null; then

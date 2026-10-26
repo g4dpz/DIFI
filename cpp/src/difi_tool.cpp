@@ -483,6 +483,71 @@ int recv_stream(const std::string& bind_addr, uint32_t count) {
   return 0;
 }
 
+// One deterministic line describing a decoded Timing Flow Control packet — identical
+// format to the Rust fc_line so the two implementations' output can be compared.
+std::string fc_line(const difi::TimingFlowControlPacket& f) {
+  const char* kind =
+      f.kind == difi::FlowControlKind::SampleCount ? "SampleCount" : "RealTime";
+  auto b = [](bool v) { return v ? "true" : "false"; };
+  char out[256];
+  std::snprintf(out, sizeof(out),
+                "FC class=0x%04X kind=%s msgid=%u controllee=0x%08X controller=0x%08X "
+                "fs=%.0f ts_adj=%lld buf=%llu OF=%s NF=%s NE=%s UF=%s",
+                f.header.packet_class, kind, f.message_id, f.controllee_id,
+                f.controller_id, f.sample_rate_hz,
+                static_cast<long long>(f.timestamp_adjust_fs),
+                static_cast<unsigned long long>(f.buffer.size_bytes), b(f.buffer.overflow),
+                b(f.buffer.near_full), b(f.buffer.near_empty), b(f.buffer.underflow));
+  return out;
+}
+
+// Flow-control SOURCE: stream count data packets to data_dest, then receive the Sink's
+// Timing Flow Control packet on fc_bind and print the reported buffer state.
+int fc_source(const std::string& data_dest, const std::string& fc_bind, uint32_t count) {
+  difi::UdpReceiver fc_rx(fc_bind);  // bind first so the reply can't race ahead
+  fc_rx.set_stream_filter(true, STREAM_ID);
+  fc_rx.set_read_timeout_ms(10000);
+
+  difi::StreamEncoder enc(STREAM_ID, 16);
+  difi::UdpSender tx(data_dest);
+  tx.send(enc.encode_context(2.401e9, 1.0e6, 1.25e6, -3.5, INT_SECONDS, FRAC_PS));
+  for (uint32_t p = 0; p < count; ++p) {
+    tx.send(enc.encode_data(stream_samples(p), INT_SECONDS, FRAC_PS + p));
+    usleep(2000);
+  }
+
+  difi::Decoder dec;
+  for (;;) {
+    auto buf = fc_rx.recv();
+    auto pkt = dec.decode(buf);
+    if (pkt.kind == difi::PacketKind::TimingFlowControl) {
+      std::printf("%s\n", fc_line(*pkt.flow_control).c_str());
+      return 0;
+    }
+  }
+}
+
+// Flow-control SINK: receive count data packets on data_bind, then emit a deterministic
+// Timing Flow Control packet to fc_dest reporting buffer state.
+int fc_sink(const std::string& data_bind, const std::string& fc_dest, uint32_t count) {
+  difi::UdpReceiver rx(data_bind);
+  rx.set_stream_filter(true, STREAM_ID);
+  rx.set_read_timeout_ms(10000);
+  difi::Decoder dec;
+
+  uint32_t data_seen = 0;
+  while (data_seen < count) {
+    auto buf = rx.recv();
+    if (dec.decode(buf).kind == difi::PacketKind::SignalData) ++data_seen;
+  }
+
+  auto fc = golden_flow_control(difi::FlowControlKind::RealTime);
+  difi::UdpSender tx(fc_dest);
+  tx.send(fc.pack());
+  std::printf("%s\n", fc_line(fc).c_str());
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -498,6 +563,10 @@ int main(int argc, char** argv) {
       return send_stream(argv[2], static_cast<uint32_t>(std::stoul(argv[3])));
     if (argc >= 4 && std::string(argv[1]) == "recv")
       return recv_stream(argv[2], static_cast<uint32_t>(std::stoul(argv[3])));
+    if (argc >= 5 && std::string(argv[1]) == "fc-source")
+      return fc_source(argv[2], argv[3], static_cast<uint32_t>(std::stoul(argv[4])));
+    if (argc >= 5 && std::string(argv[1]) == "fc-sink")
+      return fc_sink(argv[2], argv[3], static_cast<uint32_t>(std::stoul(argv[4])));
     if (argc >= 4 && std::string(argv[1]) == "tcp-send")
       return tcp_send_stream(argv[2], static_cast<uint32_t>(std::stoul(argv[3])));
     if (argc >= 4 && std::string(argv[1]) == "tcp-recv")
