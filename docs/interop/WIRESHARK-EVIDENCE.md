@@ -32,23 +32,37 @@ tests/conformance/setup.sh      # fetches the dissector (and the construct defs)
 python3 tests/conformance/wireshark_check.py tests/golden
 ```
 
-## Result — all three packet types dissect cleanly
+## Result — all three packet types dissect with correct field values
 
 ```
-[PASS] signal_context_16bit.difi.bin: dissector parsed DIFI fields (type=0x04, stream=305419896, class=0x0001)
-[PASS] version_context.difi.bin:      dissector parsed DIFI fields (type=0x05, stream=305419896, class=0x0004)
-[PASS] signal_data_16bit.difi.bin:    dissector parsed DIFI fields (type=0x01, stream=305419896, class=0x0000)
-WIRESHARK DISSECTOR: all golden packets dissect cleanly as DIFI
+[PASS] signal_context_16bit.difi.bin: type=0x04 stream=305419896 — 9 decoded fields match (class=0x0001)
+[PASS] version_context.difi.bin:      type=0x05 stream=305419896 — 8 decoded fields match (class=0x0004)
+[PASS] signal_data_16bit.difi.bin:    type=0x01 stream=305419896 — 4 decoded fields match (class=0x0000)
+WIRESHARK DISSECTOR: all golden packets dissect with correct field values
 ```
+
+The check asserts the **decoded values** the dissector reports, not just recognition:
+
+- **Signal Context:** CIF (`0xFBB98000`), ref point (`0x64`), RF frequency
+  (`2 401 000 000` Hz), bandwidth (`1 000 000` Hz), sample rate (`1 250 000` Hz), gain
+  (`-3.5` dB), integer + fractional timestamps.
+- **Version Context:** CIF0 (`0x80000002`), CIF1 (`0x0000000C`), V49 spec (`0x00000004`),
+  year (raw `21` = years-since-2000, i.e. 2021), day (`100`), revision (`1`),
+  ICD version (`0`).
+- **Signal Data:** sequence number (`0`), integer + fractional timestamps.
 
 `interop.sh` §8b runs this for both the Rust and C++ tools' output; it skips cleanly if
 `tshark` or the dissector is absent.
 
 ## Notes
 
-- This checks that the dissector **recognises the packets as DIFI and parses the key
-  header/class fields**. It does not exhaustively assert every context sub-field's
-  decoded value — the `construct` conformance check (Req 3.2) already validates the full
-  field set against the reference definitions, which encode the same wire contract.
+- The dissector's `difi.year` field is years-since-2000 (7-bit) and is reported **raw**,
+  so 2021 → `21`; our encoder writes `21`, which is what the check asserts. (Finding
+  surfaced while extending field coverage.)
+- Our gain (`-3.5` dB) lands at the offset the dissector labels `stage2_gain` — the
+  dissector splits the level/gain 32-bit word differently from how we name the sub-field.
+  The decoded value is correct; only the label differs.
 - `text2pcap` synthesises placeholder Ethernet/IP/UDP headers; only the DIFI payload
   (our bytes) is under test.
+- Field-value coverage here complements the `construct` conformance check (Req 3.2),
+  which validates the complete field set against the reference definitions.

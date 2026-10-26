@@ -101,31 +101,74 @@ def main():
         sys.stderr.write("SKIP: DIFI dissector not fetched (run tests/conformance/setup.sh).\n")
         return 3
 
-    # Expected: (file, expected packet type, expected stream id, extra field checks)
+    # Expectations use typed checks: ("int", v) exact integer, ("float", v, tol) within
+    # tolerance. Field values are the decoded values the DIFI dissector reports — these
+    # mirror the golden manifest and are the dissector's OWN interpretation of our bytes,
+    # so this asserts the full field set decodes correctly, not just recognition.
+    #
+    # Note on gain: our encoder writes stage1GainAtten at the offset the dissector labels
+    # 'stage2_gain' (it splits the 32-bit word differently), so -3.5 dB appears under
+    # difi.stage2_gain. The value is what matters for conformance.
+    STREAM = 0x12345678
     cases = [
-        ("signal_context_16bit.difi.bin", 4, "0x12345678",
-         {"difi.packet_class_code": "0x0001"}),
-        ("version_context.difi.bin", 5, "0x12345678",
-         {"difi.packet_class_code": "0x0004"}),
-        ("signal_data_16bit.difi.bin", 1, "0x12345678",
-         {"difi.packet_class_code": "0x0000"}),
+        ("signal_context_16bit.difi.bin", 4, {
+            "difi.packet_class_code": ("int", 0x0001),
+            "difi.ctxt_cif":          ("int", 0xFBB98000),
+            "difi.ref_point":         ("int", 0x64),
+            "difi.bandwidth":         ("int", 1_000_000),
+            "difi.rf_ref_freq":       ("int", 2_401_000_000),
+            "difi.sample_rate":       ("int", 1_250_000),
+            "difi.stage2_gain":       ("float", -3.5, 0.01),
+            "difi.integer_timestamp": ("int", 1_700_000_000),
+            "difi.fractional_timestamp": ("int", 123_456_789_000),
+        }),
+        ("version_context.difi.bin", 5, {
+            "difi.packet_class_code": ("int", 0x0004),
+            "difi.ctxt_cif0":         ("int", 0x80000002),
+            "difi.ctxt_cif1":         ("int", 0x0000000C),
+            "difi.v49spec":           ("int", 0x00000004),
+            # The versionInfo "year" field is years-since-2000 (7 bits); the dissector
+            # reports the raw field value, so 2021 -> 21. Our encoder writes 21. This
+            # asserts the dissector's raw decode matches what we wrote.
+            "difi.year":              ("int", 21),
+            "difi.day":               ("int", 100),
+            "difi.revision":          ("int", 1),
+            "difi.icd_version":       ("int", 0),
+        }),
+        ("signal_data_16bit.difi.bin", 1, {
+            "difi.packet_class_code": ("int", 0x0000),
+            "difi.seq_num":           ("int", 0),
+            "difi.integer_timestamp": ("int", 1_700_000_000),
+            "difi.fractional_timestamp": ("int", 123_456_789_000),
+        }),
     ]
 
-    base_fields = ["difi.packet_type", "difi.stream_id", "difi.oui",
-                   "difi.packet_class_code"]
+    base_fields = ["difi.packet_type", "difi.stream_id", "difi.oui"]
     overall_ok = True
 
-    for fname, ptype, stream_hex, extra in cases:
+    def as_int(s):
+        try:
+            return int(s, 0) if isinstance(s, str) and s.strip() else None
+        except ValueError:
+            return None
+
+    def as_float(s):
+        try:
+            return float(s) if isinstance(s, str) and s.strip() else None
+        except ValueError:
+            return None
+
+    for fname, ptype, checks in cases:
         path = os.path.join(golden_dir, fname)
         if not os.path.exists(path):
             print(f"[MISS] {fname}: not found"); overall_ok = False; continue
         payload = open(path, "rb").read()
 
+        fields = base_fields + list(checks.keys())
         with tempfile.NamedTemporaryFile(suffix=".pcap", delete=False) as pf:
             pcap = pf.name
         try:
             build_pcap(text2pcap, payload, pcap)
-            fields = base_fields + [k for k in extra if k not in base_fields]
             rows = dissect(tshark, pcap, fields)
         finally:
             os.unlink(pcap)
@@ -137,23 +180,23 @@ def main():
             continue
         row = dict(zip(fields, rows[0] + [""] * (len(fields) - len(rows[0]))))
 
-        def as_int(s):
-            try:
-                return int(s, 0) if isinstance(s, str) and s.strip() else None
-            except ValueError:
-                return None
-
         errs = []
-        # Dissector recognised it as DIFI iff difi.* fields are populated.
+        # Recognised as DIFI iff difi.* fields are populated.
         if as_int(row.get("difi.oui", "")) != 0x6A621E:
             errs.append(f"OUI not parsed as DIFI (got '{row.get('difi.oui')}')")
         if as_int(row.get("difi.packet_type", "")) != ptype:
             errs.append(f"packet_type '{row.get('difi.packet_type')}' != {ptype}")
-        if as_int(row.get("difi.stream_id", "")) != int(stream_hex, 16):
-            errs.append(f"stream_id '{row.get('difi.stream_id')}' != {stream_hex}")
-        for k, v in extra.items():
-            if as_int(row.get(k, "")) != int(v, 16):
-                errs.append(f"{k} '{row.get(k)}' != {v}")
+        if as_int(row.get("difi.stream_id", "")) != STREAM:
+            errs.append(f"stream_id '{row.get('difi.stream_id')}' != {STREAM:#x}")
+        for field, spec in checks.items():
+            raw = row.get(field, "")
+            if spec[0] == "int":
+                if as_int(raw) != spec[1]:
+                    errs.append(f"{field} '{raw}' != {spec[1]} ({spec[1]:#x})")
+            elif spec[0] == "float":
+                fv = as_float(raw)
+                if fv is None or abs(fv - spec[1]) > spec[2]:
+                    errs.append(f"{field} '{raw}' != {spec[1]} (±{spec[2]})")
 
         if errs:
             print(f"[FAIL] {fname}:")
@@ -161,12 +204,12 @@ def main():
                 print(f"         - {e}")
             overall_ok = False
         else:
-            print(f"[PASS] {fname}: dissector parsed DIFI fields "
-                  f"(type={row['difi.packet_type']}, stream={row['difi.stream_id']}, "
-                  f"class={row.get('difi.packet_class_code')})")
+            print(f"[PASS] {fname}: type={row['difi.packet_type']} "
+                  f"stream={row['difi.stream_id']} — {len(checks)} decoded fields match "
+                  f"(class={row.get('difi.packet_class_code', '?')})")
 
     if overall_ok:
-        print("WIRESHARK DISSECTOR: all golden packets dissect cleanly as DIFI")
+        print("WIRESHARK DISSECTOR: all golden packets dissect with correct field values")
         return 0
     print("WIRESHARK DISSECTOR: FAILURES above")
     return 1
