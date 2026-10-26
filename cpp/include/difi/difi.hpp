@@ -216,6 +216,168 @@ inline float get_f32(const std::vector<uint8_t>& b, size_t off) {
 }  // namespace detail
 
 // ---------------------------------------------------------------------------
+// Shared Command-Packet core (mirrors rust/src/command.rs) — VITA 49.2 §8.
+// Foundation for the 1.2 Timing Flow Control packets and the 1.3.0 link-establishment
+// packets. Field-level CAM/CIF access; concrete packets compose the exact bits they need.
+// ---------------------------------------------------------------------------
+namespace command {
+
+namespace cam_bits {
+constexpr uint32_t CONTROLLEE_PRESENT = 31;
+constexpr uint32_t CONTROLLEE_FORMAT = 30;
+constexpr uint32_t CONTROLLER_PRESENT = 29;
+constexpr uint32_t CONTROLLER_FORMAT = 28;
+constexpr uint32_t ACTION_MODE_SHIFT = 23;  // bits 24-23
+constexpr uint32_t ACTION_MODE_MASK = 0b11;
+constexpr uint32_t ACK_TYPE_SHIFT = 18;  // bits 20-18
+constexpr uint32_t ACK_TYPE_MASK = 0b111;
+constexpr uint32_t TS_CONTROL_SHIFT = 12;  // bits 14-12
+constexpr uint32_t TS_CONTROL_MASK = 0b111;
+constexpr uint32_t MODELLED_MASK =
+    (1u << CONTROLLEE_PRESENT) | (1u << CONTROLLEE_FORMAT) | (1u << CONTROLLER_PRESENT) |
+    (1u << CONTROLLER_FORMAT) | (ACTION_MODE_MASK << ACTION_MODE_SHIFT) |
+    (ACK_TYPE_MASK << ACK_TYPE_SHIFT) | (TS_CONTROL_MASK << TS_CONTROL_SHIFT);
+}  // namespace cam_bits
+
+namespace action_mode {
+constexpr uint8_t NONE = 0b00;
+constexpr uint8_t DRY_RUN = 0b01;
+constexpr uint8_t EXECUTE = 0b10;
+}  // namespace action_mode
+
+namespace ack_type {
+constexpr uint8_t NONE = 0b000;
+constexpr uint8_t VALIDATION = 0b100;
+}  // namespace ack_type
+
+// CAM (Control/Acknowledge Mode) field. See rust/src/command.rs for the bit layout.
+struct Cam {
+  bool controllee_id_present = false;
+  bool controllee_id_format = false;
+  bool controller_id_present = false;
+  bool controller_id_format = false;
+  uint8_t action_mode = 0;
+  uint8_t ack_type = 0;
+  uint8_t timestamp_control = 0;
+  uint32_t reserved = 0;
+
+  static Cam from_word(uint32_t w) {
+    Cam c{};
+    c.controllee_id_present = (w >> cam_bits::CONTROLLEE_PRESENT) & 1;
+    c.controllee_id_format = (w >> cam_bits::CONTROLLEE_FORMAT) & 1;
+    c.controller_id_present = (w >> cam_bits::CONTROLLER_PRESENT) & 1;
+    c.controller_id_format = (w >> cam_bits::CONTROLLER_FORMAT) & 1;
+    c.action_mode =
+        static_cast<uint8_t>((w >> cam_bits::ACTION_MODE_SHIFT) & cam_bits::ACTION_MODE_MASK);
+    c.ack_type =
+        static_cast<uint8_t>((w >> cam_bits::ACK_TYPE_SHIFT) & cam_bits::ACK_TYPE_MASK);
+    c.timestamp_control =
+        static_cast<uint8_t>((w >> cam_bits::TS_CONTROL_SHIFT) & cam_bits::TS_CONTROL_MASK);
+    c.reserved = w & ~cam_bits::MODELLED_MASK;
+    return c;
+  }
+
+  uint32_t to_word() const {
+    uint32_t w = reserved & ~cam_bits::MODELLED_MASK;
+    w |= static_cast<uint32_t>(controllee_id_present) << cam_bits::CONTROLLEE_PRESENT;
+    w |= static_cast<uint32_t>(controllee_id_format) << cam_bits::CONTROLLEE_FORMAT;
+    w |= static_cast<uint32_t>(controller_id_present) << cam_bits::CONTROLLER_PRESENT;
+    w |= static_cast<uint32_t>(controller_id_format) << cam_bits::CONTROLLER_FORMAT;
+    w |= (static_cast<uint32_t>(action_mode) & cam_bits::ACTION_MODE_MASK)
+         << cam_bits::ACTION_MODE_SHIFT;
+    w |= (static_cast<uint32_t>(ack_type) & cam_bits::ACK_TYPE_MASK) << cam_bits::ACK_TYPE_SHIFT;
+    w |= (static_cast<uint32_t>(timestamp_control) & cam_bits::TS_CONTROL_MASK)
+         << cam_bits::TS_CONTROL_SHIFT;
+    return w;
+  }
+
+  bool operator==(const Cam& o) const {
+    return to_word() == o.to_word();
+  }
+};
+
+// CIF0 bit positions.
+namespace cif0 {
+constexpr uint32_t SHORT_FORM = 31;
+constexpr uint32_t REFERENCE_POINT = 30;
+constexpr uint32_t SAMPLE_RATE = 21;
+constexpr uint32_t TIMESTAMP_ADJ = 20;
+constexpr uint32_t CIF1_PRESENT = 2;
+}  // namespace cif0
+
+// CIF1 bit positions.
+namespace cif1 {
+constexpr uint32_t BUFFER_SIZE = 1;
+}  // namespace cif1
+
+// Control Indicator Field (CIF0/CIF1) — a 32-bit presence bitmap.
+struct Cif {
+  uint32_t value = 0;
+  bool get(uint32_t bit) const { return (value >> bit) & 1; }
+  Cif with(uint32_t bit, bool present) const {
+    return Cif{present ? (value | (1u << bit)) : (value & ~(1u << bit))};
+  }
+  uint32_t word() const { return value; }
+  bool operator==(const Cif& o) const { return value == o.value; }
+};
+
+// Common command-packet context block (CAM, CIF0, Message ID, Controllee/Controller ID,
+// CIF1). Command-specific fields that follow are owned by each concrete packet type.
+struct CommandContext {
+  Cam cam{};
+  Cif cif0{};
+  uint32_t message_id = 0;
+  uint32_t controllee_id = 0;
+  uint32_t controller_id = 0;
+  Cif cif1{};
+};
+
+// Buffer Size + status (fill-level flags) carried by the command packet.
+struct BufferState {
+  uint64_t size_bytes = 0;
+  bool overflow = false;
+  bool near_full = false;
+  bool near_empty = false;
+  bool underflow = false;
+  uint32_t level = 0;
+
+  uint32_t status_word() const {
+    namespace bs = constants::buffer_status;
+    uint32_t w = level & ~0xFu;
+    w |= static_cast<uint32_t>(overflow) << bs::OVERFLOW_BIT;
+    w |= static_cast<uint32_t>(near_full) << bs::NEAR_FULL_BIT;
+    w |= static_cast<uint32_t>(near_empty) << bs::NEAR_EMPTY_BIT;
+    w |= static_cast<uint32_t>(underflow) << bs::UNDERFLOW_BIT;
+    return w;
+  }
+
+  static BufferState from_status_word(uint64_t size_bytes, uint32_t w) {
+    namespace bs = constants::buffer_status;
+    BufferState s{};
+    s.size_bytes = size_bytes;
+    s.overflow = (w >> bs::OVERFLOW_BIT) & 1;
+    s.near_full = (w >> bs::NEAR_FULL_BIT) & 1;
+    s.near_empty = (w >> bs::NEAR_EMPTY_BIT) & 1;
+    s.underflow = (w >> bs::UNDERFLOW_BIT) & 1;
+    s.level = w & ~0xFu;
+    return s;
+  }
+
+  bool operator==(const BufferState& o) const {
+    return size_bytes == o.size_bytes && status_word() == o.status_word();
+  }
+};
+
+inline void check_action_mode(uint8_t mode) {
+  if (mode > cam_bits::ACTION_MODE_MASK) {
+    throw DifiError("cam.action_mode " + std::to_string(mode) +
+                    " does not fit the 2-bit Action Mode field");
+  }
+}
+
+}  // namespace command
+
+// ---------------------------------------------------------------------------
 // I/Q sample packing (mirrors rust/src/iq.rs)
 // ---------------------------------------------------------------------------
 struct IqSample {

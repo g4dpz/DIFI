@@ -367,6 +367,54 @@ static void test_fuzz_decoder_never_crashes() {
   CHECK(all_ok);
 }
 
+// Shared Command-Packet core — spec difi-1.2-dataplane task 2. Mirrors the
+// rust/src/command.rs unit tests; the two implementations MUST agree bit-for-bit.
+static void test_command_core() {
+  using namespace difi::command;
+  // CAM round-trip preserves all bits, including reserved ones we don't model.
+  for (uint32_t word : {0x00000000u, 0xFFFFFFFFu, 0xA1100000u, 0x12345678u, 0x80000000u}) {
+    CHECK(Cam::from_word(word).to_word() == word);
+  }
+  // CAM fields map to the right bits.
+  Cam cam{};
+  cam.controllee_id_present = true;
+  cam.controller_id_present = true;
+  cam.action_mode = action_mode::EXECUTE;  // 0b10 -> bit 24
+  cam.ack_type = ack_type::VALIDATION;      // 0b100 -> bit 20
+  uint32_t w = cam.to_word();
+  CHECK(((w >> 31) & 1) == 1);
+  CHECK(((w >> 29) & 1) == 1);
+  CHECK(((w >> 23) & 0b11) == 0b10);
+  CHECK(((w >> 18) & 0b111) == 0b100);
+  CHECK(w == (0x80000000u | 0x20000000u | 0x01000000u | 0x00100000u));
+  // CIF set/clear.
+  Cif c = Cif{}.with(cif0::REFERENCE_POINT, true).with(cif0::SAMPLE_RATE, true).with(
+      cif0::CIF1_PRESENT, true);
+  CHECK(c.get(cif0::REFERENCE_POINT));
+  CHECK(c.get(cif0::SAMPLE_RATE));
+  CHECK(c.get(cif0::CIF1_PRESENT));
+  CHECK(!c.get(cif0::SHORT_FORM));
+  Cif c2 = c.with(cif0::SAMPLE_RATE, false);
+  CHECK(!c2.get(cif0::SAMPLE_RATE));
+  CHECK(c2.get(cif0::REFERENCE_POINT));
+  // Buffer status round-trip.
+  BufferState b{};
+  b.size_bytes = 1u << 20;
+  b.overflow = true;
+  b.near_empty = true;
+  b.level = 0x12345670;
+  uint32_t sw = b.status_word();
+  CHECK(((sw >> 3) & 1) == 1);
+  CHECK(((sw >> 1) & 1) == 1);
+  CHECK(((sw >> 2) & 1) == 0);
+  BufferState back = BufferState::from_status_word(b.size_bytes, sw);
+  CHECK(back == b);
+  // Action-mode validation.
+  CHECK(!throws([] { check_action_mode(action_mode::EXECUTE); }));
+  CHECK(!throws([] { check_action_mode(0b11); }));
+  CHECK(throws([] { check_action_mode(0b100); }));
+}
+
 // DIFI 1.2 constants — spec difi-1.2-dataplane task 1. Mirrors
 // rust/tests/constants_1_2.rs; the two implementations MUST agree.
 static void test_constants_1_2() {
@@ -407,6 +455,7 @@ static void test_constants_1_2() {
 
 int main() {
   test_constants_1_2();
+  test_command_core();
   test_iq_round_trip();
   test_iq_rejections();
   test_signal_data_round_trip();

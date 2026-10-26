@@ -8,6 +8,7 @@
 //!
 //! See `docs/reference/DIFI-VITA49-PRIMER.md` and `.kiro/specs/difi-iq-interop/`.
 
+pub mod command;
 pub mod constants;
 pub mod decoder;
 pub mod encoder;
@@ -20,6 +21,7 @@ pub mod sha256;
 pub mod signal;
 pub mod transport;
 
+pub use command::{BufferState, Cam, Cif, CommandContext};
 pub use decoder::{Decoder, DifiPacket};
 pub use encoder::StreamEncoder;
 pub use error::{DifiError, Result};
