@@ -82,6 +82,51 @@ impl StreamEncoder {
         Ok(bytes)
     }
 
+    /// Largest number of complex samples that fit in one Signal Data packet at this
+    /// bit depth, respecting the DIFI max payload (Req 2.5) and 32-bit-word alignment.
+    ///
+    /// The payload must be a whole number of 32-bit words: `samples * 2 * bit_depth`
+    /// must be a multiple of 32, i.e. `samples` is a multiple of `lcm(16, bit_depth)
+    /// / bit_depth`. This returns the largest aligned sample count whose packet
+    /// (header + payload) stays within `MAX_PAYLOAD_OCTETS`.
+    pub fn max_samples_per_packet(&self) -> usize {
+        let bd = self.bit_depth as usize;
+        // Samples per 32-bit-word-aligned block.
+        let step = lcm(16, bd) / bd; // smallest sample count that is word aligned
+        let payload_octets = MAX_PAYLOAD_OCTETS - HEADER_BYTES;
+        let payload_bits = payload_octets * 8;
+        let max_samples_unaligned = payload_bits / (2 * bd);
+        // Round down to a multiple of `step`.
+        (max_samples_unaligned / step) * step
+    }
+
+    /// Encode a (possibly large) sample buffer as a sequence of Signal Data packets,
+    /// segmenting at the DIFI max-payload boundary (Req 2.5: "reject OR segment").
+    /// Each packet carries the running mod-16 sequence number. Returns one byte buffer
+    /// per packet.
+    pub fn encode_data_segmented(
+        &mut self,
+        samples: &[IqSample],
+        integer_seconds: u32,
+        fractional_ps: u64,
+    ) -> Result<Vec<Vec<u8>>> {
+        let chunk = self.max_samples_per_packet();
+        if chunk == 0 {
+            return Err(crate::error::DifiError::Invalid {
+                field: "bit_depth",
+                detail: "no whole-word sample chunk fits the max payload".into(),
+            });
+        }
+        let mut out = Vec::new();
+        if samples.is_empty() {
+            return Ok(out);
+        }
+        for part in samples.chunks(chunk) {
+            out.push(self.encode_data(part, integer_seconds, fractional_ps)?);
+        }
+        Ok(out)
+    }
+
     /// Encode a conformant Signal Context packet describing this stream.
     #[allow(clippy::too_many_arguments)]
     pub fn encode_context(
@@ -142,4 +187,16 @@ impl StreamEncoder {
         }
         .pack()
     }
+}
+
+fn gcd(a: usize, b: usize) -> usize {
+    if b == 0 {
+        a
+    } else {
+        gcd(b, a % b)
+    }
+}
+
+fn lcm(a: usize, b: usize) -> usize {
+    a / gcd(a, b) * b
 }

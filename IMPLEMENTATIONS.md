@@ -36,8 +36,11 @@ plus an **end-to-end reference-signal export/import** proven across both impleme
 - Golden packets as regression fixtures.
 - **UDP transport** (task 9 / Req 5): `UdpSender` / `UdpReceiver`, decoupled from the
   packet model (one DIFI packet per UDP datagram), with **Stream-ID filtering** on
-  receive so multiple streams can share a port. UDP is DIFI's standard transport; a
-  non-standard TCP dev mode (Req 5.2) is not implemented yet.
+  receive so multiple streams can share a port. UDP is DIFI's standard transport. A
+  **non-standard TCP dev mode** (Req 5.2) is also provided (`TcpSender`/`TcpReceiver`,
+  length-framed, clearly marked non-standard) for lossless ordered exchange. The encoder
+  can **segment** a large buffer across multiple Signal Data packets (Req 2.5,
+  `encode_data_segmented`).
 - **Sample mapper** (task 8 / Req 4): `ScalingConvention`, `float_to_difi`,
   `difi_to_float`, and `measure_implementation_loss`. See the convention below.
 

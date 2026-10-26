@@ -158,17 +158,18 @@ The acceptance criteria above are the normative targets and are left unchanged. 
 section records where the shipped toolkit stands against them (two independent
 implementations, Rust + C++). See `tasks.md`, `IMPLEMENTATIONS.md`, and `docs/interop/`.
 
-- **Req 1 (decode), Req 2 (encode):** met. Caveat on 2.5 — the encoder rejects oversized
-  payloads; automatic segmentation is not implemented (the criterion allows reject OR
-  segment).
+- **Req 1 (decode), Req 2 (encode):** met. 2.5 now satisfied both ways — the encoder
+  rejects an oversized single packet AND offers `encode_data_segmented` that splits a
+  large buffer across multiple Signal Data packets with running sequence numbers.
 - **Req 3 (conformance):** 3.2, 3.3, 3.4 met against the DIFI Consortium reference
   `construct` definitions. **3.1 (Wireshark dissector) not exercised** — a manual GUI
   step; the construct defs encode the same wire contract.
 - **Req 4 (sample mapping):** 4.1, 4.2 met (documented, deterministic, measured loss).
   **4.3 partial** — the convention is documented and in the manifest, but not yet
   reconciled against the DIFI MILCOM reference-gain/scaling guidance.
-- **Req 5 (transport):** 5.1 (UDP) and 5.3 (Stream-ID filter) met. **5.2 (TCP dev mode)
-  not implemented** — it is a MAY/optional.
+- **Req 5 (transport):** 5.1 (UDP), 5.2 (TCP dev mode), and 5.3 (Stream-ID filter) all
+  met. TCP is length-framed and clearly marked non-standard (`TcpSender`/`TcpReceiver`
+  in both implementations), with Stream-ID filtering and loopback tests.
 - **Req 6 (reproducible signals):** 6.1, 6.2, 6.3 met. **6.4 partial** — the manifest
   records a SHA-256 for external hosting, but no real canonical dataset is hosted yet and
   the committed signal is an LSIS-AFS-*style* waveform, not a real LSIS-AFS vector.

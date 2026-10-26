@@ -96,8 +96,10 @@ Builds valid packets from a packet model + stream config. Responsibilities:
 - Maintain and increment the mod-16 sequence number across a data stream.
 - Enforce the whole-4-byte-word constraint for the chosen samples-per-packet × bit depth;
   reject invalid configs (Req 2.4).
-- Enforce the ≤~9000-octet UDP payload limit; reject per config (Req 2.5). *As built: the
-  reject path is implemented; automatic segmentation is not.*
+- Enforce the ≤~9000-octet UDP payload limit; reject or segment per config (Req 2.5).
+  *As built: both — `encode_data` rejects an oversized single packet, and
+  `encode_data_segmented` splits a large buffer into word-aligned packets with running
+  sequence numbers (cap from `max_samples_per_packet`).*
 
 ### 3. DIFI Decoder + Validator
 Parses bytes into the packet model, failing closed on anything outside the DIFI profile:
@@ -117,7 +119,9 @@ reference-gain guidance (Req 4.3).*
 ### 5. Transport
 - **UDP** sender/receiver (the DIFI-standard transport, Req 5.1). *As built.*
 - Optional **TCP** mode for lossless development exchange, clearly labelled non-standard
-  (Req 5.2). *Not built — Req 5.2 is a MAY; deferred.*
+  (Req 5.2). *As built: `TcpSender`/`TcpReceiver`, length-framed (4-byte big-endian
+  prefix per packet, since TCP has no datagram boundaries), with Stream-ID filtering.
+  Explicitly non-DIFI; will not interoperate with a standard UDP endpoint.*
 - Receiver filters by **Stream ID** so multiple streams can share a port (Req 5.3).
   *As built.*
 - Transport is decoupled from the packet model (encode/decode never touch sockets), so

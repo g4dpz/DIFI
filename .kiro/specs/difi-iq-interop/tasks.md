@@ -54,8 +54,9 @@ the requirements it satisfies. DIFI 1.1 is the target; keep hooks for 1.2.1.
   - Unit test: encode→decode round trip is bit-exact (Req 2.6); invalid configs rejected.
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6_
   - **Done.** `rust/src/encoder.rs`, `cpp/include/difi/difi.hpp` (`StreamEncoder`).
-    Note: encoder rejects oversized payloads; it does not yet segment (Req 2.5 "reject OR
-    segment" — reject path implemented).
+    Req 2.5 satisfied both ways: `encode_data` rejects an oversized single packet;
+    `encode_data_segmented` splits a large buffer into word-aligned packets with running
+    sequence numbers.
 
 - [x] 7. Golden packets as fixtures
   - Produce a few KB-scale canonical DIFI packets with documented expected field values;
@@ -82,10 +83,10 @@ the requirements it satisfies. DIFI 1.1 is the target; keep hooks for 1.2.1.
     receive; optional TCP mode flagged non-standard.
   - Integration test: two local endpoints exchange a short stream over UDP.
   - _Requirements: 5.1, 5.2, 5.3_
-  - **Done** (UDP). `rust/src/transport.rs`, `cpp/include/difi/difi.hpp`. UDP send/recv,
-    Stream-ID filtering (Req 5.1, 5.3); tested in `rust/tests/transport.rs` and live over
-    4 directions (interop.sh §3). **Req 5.2 (TCP dev mode) NOT implemented** — it is a
-    MAY (optional, explicitly non-standard), so compliant, but the sub-feature is absent.
+  - **Done.** `rust/src/transport.rs`, `cpp/include/difi/difi.hpp`. UDP send/recv +
+    Stream-ID filtering (Req 5.1, 5.3), tested and live over 4 directions (interop.sh §3).
+    Req 5.2 **also done**: `TcpSender`/`TcpReceiver`, length-framed, clearly non-standard,
+    with Stream-ID filtering and loopback tests in both implementations.
 
 - [x] 10. Conformance harness vs DIFI Consortium tooling
   - Scripts: our-encode → `certify_source.py` parse; `certify_sink.py` → our-decode;
@@ -152,10 +153,9 @@ Build/test: `cd rust && cargo test`; `cmake -S cpp -B cpp/build && cmake --build
 && ctest --test-dir cpp/build`; `./tests/interop.sh` (9 sections).
 
 ### Known gaps (deferred, not silently dropped)
-- **Req 5.2 — TCP dev-mode transport:** not implemented (a MAY / optional; UDP is the
-  standard transport and is done).
-- **Req 3.1 — Wireshark dissector capture:** not run (manual GUI step; the construct
-  conformance check covers the same wire contract — Req 3.2/3.3 done).
+- **Req 3.1 — Wireshark dissector capture:** not run (manual/tooling step; the construct
+  conformance check covers the same wire contract — Req 3.2/3.3 done). The DIFI `.lua`
+  dissector exists in the cert repo and could be run headless via `tshark`.
 - **Req 4.3 — scaling vs DIFI MILCOM reference-gain guidance:** convention is documented
   and pinned, but not yet reconciled against that external guidance.
 - **Req 6.4 / DQ-4 — canonical dataset hosting:** manifest records SHA-256 for external

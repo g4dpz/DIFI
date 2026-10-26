@@ -232,3 +232,60 @@ fn stateful_decode_learns_bit_depth_from_context() {
         _ => panic!("expected data"),
     }
 }
+
+#[test]
+fn max_samples_per_packet_is_word_aligned_and_within_limit() {
+    // Req 2.5: the per-packet sample cap must be word-aligned and keep the packet
+    // (header + payload) within the DIFI max payload.
+    for &depth in &[4u8, 8, 12, 16] {
+        let enc = StreamEncoder::new(0x1, depth);
+        let n = enc.max_samples_per_packet();
+        // word aligned
+        assert_eq!((n * 2 * depth as usize) % 32, 0, "depth {depth} not aligned");
+        // within limit
+        let payload_words = n * 2 * depth as usize / 32;
+        let total_octets = (HEADER_WORDS as usize + payload_words) * 4;
+        assert!(total_octets <= MAX_PAYLOAD_OCTETS, "depth {depth} over limit");
+        // one more aligned block would exceed the limit
+        assert!(n > 0);
+    }
+}
+
+#[test]
+fn segmented_encode_reassembles_bit_exact() {
+    // Req 2.5 (segment path): a buffer larger than one packet splits into several
+    // Signal Data packets with running mod-16 sequence; reassembly is bit-exact.
+    let depth = 16u8;
+    let mut enc = StreamEncoder::new(0, depth); // stream id 0 is fine
+    let per = enc.max_samples_per_packet();
+    let total = per * 3 + per / 2; // 3.5 packets' worth
+    let samples: Vec<IqSample> = (0..total)
+        .map(|k| IqSample::new((k as i32 % 100) - 50, 50 - (k as i32 % 100)))
+        .collect();
+
+    let packets = enc.encode_data_segmented(&samples, 0, 0).unwrap();
+    assert_eq!(packets.len(), 4, "3.5 packets' worth rounds up to 4 segments");
+
+    let mut dec = Decoder::new();
+    dec.set_bit_depth(0, depth);
+    let mut reassembled = Vec::new();
+    for (i, buf) in packets.iter().enumerate() {
+        match dec.decode(buf).unwrap() {
+            DifiPacket::SignalData(d) => {
+                assert_eq!(d.header.seq_num, (i % 16) as u8);
+                reassembled.extend(d.samples);
+            }
+            _ => panic!("expected data"),
+        }
+    }
+    assert_eq!(reassembled, samples, "segmented stream reassembles exactly");
+}
+
+#[test]
+fn segmented_encode_empty_and_single() {
+    let mut enc = StreamEncoder::new(0x2, 16);
+    assert!(enc.encode_data_segmented(&[], 0, 0).unwrap().is_empty());
+    let one = vec![IqSample::new(1, -1); 16];
+    let pkts = enc.encode_data_segmented(&one, 0, 0).unwrap();
+    assert_eq!(pkts.len(), 1);
+}

@@ -11,6 +11,7 @@
 #ifndef DIFI_DIFI_HPP
 #define DIFI_DIFI_HPP
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -602,6 +603,36 @@ class StreamEncoder {
     return bytes;
   }
 
+  // Largest word-aligned complex-sample count that fits one Signal Data packet within
+  // the DIFI max payload (Req 2.5). Mirrors rust StreamEncoder::max_samples_per_packet.
+  size_t max_samples_per_packet() const {
+    size_t bd = bit_depth_;
+    auto gcd = [](size_t a, size_t b) {
+      while (b) { size_t t = a % b; a = b; b = t; }
+      return a;
+    };
+    size_t step = (16 * bd / gcd(16, bd)) / bd;  // lcm(16,bd)/bd: min aligned block
+    size_t payload_bits = (constants::MAX_PAYLOAD_OCTETS - constants::HEADER_BYTES) * 8;
+    size_t max_unaligned = payload_bits / (2 * bd);
+    return (max_unaligned / step) * step;
+  }
+
+  // Encode a (possibly large) buffer as a sequence of Signal Data packets, segmenting at
+  // the max-payload boundary (Req 2.5). Running mod-16 sequence; one buffer per packet.
+  std::vector<std::vector<uint8_t>> encode_data_segmented(
+      const std::vector<IqSample>& samples, uint32_t integer_seconds,
+      uint64_t fractional_ps) {
+    size_t chunk = max_samples_per_packet();
+    if (chunk == 0) throw DifiError("no whole-word sample chunk fits the max payload");
+    std::vector<std::vector<uint8_t>> out;
+    for (size_t off = 0; off < samples.size(); off += chunk) {
+      size_t end = std::min(off + chunk, samples.size());
+      std::vector<IqSample> part(samples.begin() + off, samples.begin() + end);
+      out.push_back(encode_data(part, integer_seconds, fractional_ps));
+    }
+    return out;
+  }
+
   std::vector<uint8_t> encode_context(double rf_reference_hz, double bandwidth_hz,
                                       double sample_rate_hz, double gain_db,
                                       uint32_t integer_seconds,
@@ -1106,6 +1137,163 @@ class UdpReceiver {
   bool filter_enabled_ = false;
   uint32_t filter_id_ = 0;
   std::vector<uint8_t> buf_;
+};
+
+// ---------------------------------------------------------------------------
+// TCP dev-mode transport (Req 5.2) — NON-STANDARD, length-framed.
+// DIFI's transport is UDP; this is a development convenience for lossless, ordered
+// exchange. Each DIFI packet is framed with a 4-byte big-endian length prefix.
+// ---------------------------------------------------------------------------
+namespace detail {
+constexpr size_t TCP_MAX_FRAME = constants::MAX_PAYLOAD_OCTETS + 64;
+
+inline bool read_n(int fd, uint8_t* buf, size_t n, bool& clean_eof) {
+  size_t filled = 0;
+  clean_eof = false;
+  while (filled < n) {
+    ssize_t r = ::recv(fd, buf + filled, n - filled, 0);
+    if (r == 0) {
+      if (filled == 0) { clean_eof = true; return false; }
+      return false;  // EOF mid-frame
+    }
+    if (r < 0) {
+      if (errno == EINTR) continue;
+      return false;
+    }
+    filled += static_cast<size_t>(r);
+  }
+  return true;
+}
+}  // namespace detail
+
+// Sends DIFI packets over a TCP connection, length-framed. Non-standard (dev only).
+class TcpSender {
+ public:
+  explicit TcpSender(const std::string& dest) {
+    std::string host;
+    uint16_t port;
+    if (!detail::split_hostport(dest, host, port))
+      throw DifiError("bad destination: " + dest);
+    fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd_ < 0) throw DifiError("socket() failed");
+    sockaddr_in addr{};
+    if (!detail::resolve_v4(host, port, addr)) {
+      ::close(fd_);
+      throw DifiError("cannot resolve " + host);
+    }
+    if (::connect(fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+      ::close(fd_);
+      throw DifiError(std::string("connect failed: ") + std::strerror(errno));
+    }
+  }
+  ~TcpSender() {
+    if (fd_ >= 0) ::close(fd_);
+  }
+  TcpSender(const TcpSender&) = delete;
+  TcpSender& operator=(const TcpSender&) = delete;
+
+  size_t send(const std::vector<uint8_t>& packet) {
+    if (packet.size() > detail::TCP_MAX_FRAME)
+      throw DifiError("packet exceeds TCP frame limit");
+    uint32_t len = static_cast<uint32_t>(packet.size());
+    uint8_t hdr[4] = {uint8_t(len >> 24), uint8_t(len >> 16), uint8_t(len >> 8),
+                      uint8_t(len)};
+    if (!send_all(hdr, 4) || !send_all(packet.data(), packet.size()))
+      throw DifiError(std::string("send failed: ") + std::strerror(errno));
+    return packet.size() + 4;
+  }
+
+ private:
+  bool send_all(const uint8_t* buf, size_t n) {
+    size_t sent = 0;
+    while (sent < n) {
+      ssize_t w = ::send(fd_, buf + sent, n - sent, 0);
+      if (w < 0) {
+        if (errno == EINTR) continue;
+        return false;
+      }
+      sent += static_cast<size_t>(w);
+    }
+    return true;
+  }
+  int fd_ = -1;
+};
+
+// Receives length-framed DIFI packets over a single TCP connection. Non-standard.
+class TcpReceiver {
+ public:
+  explicit TcpReceiver(const std::string& bind_addr) {
+    std::string host;
+    uint16_t port;
+    if (!detail::split_hostport(bind_addr, host, port))
+      throw DifiError("bad bind address: " + bind_addr);
+    listen_fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (listen_fd_ < 0) throw DifiError("socket() failed");
+    int one = 1;
+    ::setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    sockaddr_in addr{};
+    if (!detail::resolve_v4(host, port, addr)) {
+      ::close(listen_fd_);
+      throw DifiError("cannot resolve bind host " + host);
+    }
+    if (::bind(listen_fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0 ||
+        ::listen(listen_fd_, 1) < 0) {
+      ::close(listen_fd_);
+      throw DifiError(std::string("bind/listen failed: ") + std::strerror(errno));
+    }
+  }
+  ~TcpReceiver() {
+    if (conn_fd_ >= 0) ::close(conn_fd_);
+    if (listen_fd_ >= 0) ::close(listen_fd_);
+  }
+  TcpReceiver(const TcpReceiver&) = delete;
+  TcpReceiver& operator=(const TcpReceiver&) = delete;
+
+  uint16_t local_port() const {
+    sockaddr_in a{};
+    socklen_t len = sizeof(a);
+    if (::getsockname(listen_fd_, reinterpret_cast<sockaddr*>(&a), &len) < 0) return 0;
+    return ntohs(a.sin_port);
+  }
+
+  void set_stream_filter(bool enabled, uint32_t stream_id = 0) {
+    filter_enabled_ = enabled;
+    filter_id_ = stream_id;
+  }
+
+  // Receive the next packet passing the filter. Accepts one connection on first call.
+  // Returns an empty vector at clean end-of-stream.
+  std::vector<uint8_t> recv() {
+    if (conn_fd_ < 0) {
+      conn_fd_ = ::accept(listen_fd_, nullptr, nullptr);
+      if (conn_fd_ < 0) throw DifiError("accept failed");
+    }
+    for (;;) {
+      uint8_t lenbuf[4];
+      bool clean_eof = false;
+      if (!detail::read_n(conn_fd_, lenbuf, 4, clean_eof)) {
+        if (clean_eof) return {};  // end of stream at frame boundary
+        throw DifiError("TCP read error / EOF mid-frame");
+      }
+      uint32_t len = (uint32_t(lenbuf[0]) << 24) | (uint32_t(lenbuf[1]) << 16) |
+                     (uint32_t(lenbuf[2]) << 8) | uint32_t(lenbuf[3]);
+      if (len > detail::TCP_MAX_FRAME) throw DifiError("TCP frame length exceeds limit");
+      std::vector<uint8_t> packet(len);
+      bool eof2 = false;
+      if (!detail::read_n(conn_fd_, packet.data(), len, eof2))
+        throw DifiError("TCP read error in frame body");
+      if (!filter_enabled_) return packet;
+      uint32_t sid;
+      if (peek_stream_id(packet, sid) && sid == filter_id_) return packet;
+      // else drop, keep reading
+    }
+  }
+
+ private:
+  int listen_fd_ = -1;
+  int conn_fd_ = -1;
+  bool filter_enabled_ = false;
+  uint32_t filter_id_ = 0;
 };
 
 }  // namespace difi

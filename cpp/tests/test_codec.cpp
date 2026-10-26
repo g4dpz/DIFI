@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <functional>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "difi/difi.hpp"
@@ -212,6 +213,67 @@ static void test_mapper_rejects_bad_depth() {
   CHECK(throws([] { ScalingConvention(17, 1.0); }));
 }
 
+// --- Segmentation (Req 2.5) -------------------------------------------------
+
+static void test_segmented_encode_reassembles() {
+  uint8_t depth = 16;
+  StreamEncoder enc(0, depth);
+  size_t per = enc.max_samples_per_packet();
+  CHECK((per * 2 * depth) % 32 == 0);  // word aligned
+  CHECK(per > 0);
+  size_t total = per * 3 + per / 2;
+  std::vector<IqSample> samples;
+  for (size_t k = 0; k < total; ++k)
+    samples.push_back({(int)(k % 100) - 50, 50 - (int)(k % 100)});
+
+  auto packets = enc.encode_data_segmented(samples, 0, 0);
+  CHECK(packets.size() == 4);  // 3.5 packets' worth -> 4 segments
+
+  Decoder dec;
+  dec.set_bit_depth(0, depth);
+  std::vector<IqSample> reassembled;
+  for (size_t i = 0; i < packets.size(); ++i) {
+    auto pkt = dec.decode(packets[i]);
+    CHECK(pkt.kind == PacketKind::SignalData);
+    CHECK(pkt.data->header.seq_num == (uint8_t)(i % 16));
+    for (auto& s : pkt.data->samples) reassembled.push_back(s);
+  }
+  CHECK(reassembled == samples);
+}
+
+// --- TCP dev-mode transport (Req 5.2) ---------------------------------------
+
+static void test_tcp_dev_mode_exchange() {
+  TcpReceiver rx("127.0.0.1:0");
+  uint16_t port = rx.local_port();
+  std::vector<IqSample> samples;
+  for (int k = 0; k < 32; ++k) samples.push_back({k - 16, 16 - k});
+
+  std::thread tx([port, samples]() {
+    TcpSender sender("127.0.0.1:" + std::to_string(port));
+    StreamEncoder enc(0xFEED0001u, 16);
+    sender.send(enc.encode_context(1e9, 1e6, 1e6, 0.0, 0, 0));
+    for (int i = 0; i < 5; ++i) sender.send(enc.encode_data(samples, 0, 0));
+    // sender dtor closes the connection -> clean EOF
+  });
+
+  Decoder dec;
+  auto b1 = rx.recv();
+  CHECK(!b1.empty());
+  CHECK(dec.decode(b1).kind == PacketKind::SignalContext);
+  int data_seen = 0;
+  for (;;) {
+    auto buf = rx.recv();
+    if (buf.empty()) break;  // clean EOF
+    auto pkt = dec.decode(buf);
+    CHECK(pkt.kind == PacketKind::SignalData);
+    CHECK(pkt.data->samples == samples);
+    ++data_seen;
+  }
+  CHECK(data_seen == 5);
+  tx.join();
+}
+
 // --- Property + fuzz hardening (spec task 14) -------------------------------
 
 // Deterministic xorshift64* PRNG, matching the Rust fuzz harness in spirit.
@@ -318,6 +380,8 @@ int main() {
   test_mapper_rejects_bad_depth();
   test_property_iq_round_trip();
   test_fuzz_decoder_never_crashes();
+  test_segmented_encode_reassembles();
+  test_tcp_dev_mode_exchange();
 
   std::printf("%d checks, %d failures\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
