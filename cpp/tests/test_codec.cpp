@@ -367,7 +367,8 @@ static void test_fuzz_decoder_never_crashes() {
       // Accidentally-valid packet: must be a known kind.
       if (!(pkt.kind == PacketKind::SignalData ||
             pkt.kind == PacketKind::SignalContext ||
-            pkt.kind == PacketKind::VersionContext)) {
+            pkt.kind == PacketKind::VersionContext ||
+            pkt.kind == PacketKind::TimingFlowControl)) {
         all_ok = false;
         std::printf("FAIL: decode returned unknown kind at it=%d\n", it);
         break;
@@ -381,6 +382,91 @@ static void test_fuzz_decoder_never_crashes() {
     }
   }
   CHECK(all_ok);
+}
+
+// DIFI 1.2 command/flow-control hardening (spec difi-1.2-dataplane task 13). Mirrors the
+// Rust fuzz.rs property_flow_control_round_trips_bit_exact + fuzz_flow_control_*.
+static void test_flow_control_property_and_fuzz() {
+  namespace c = difi::constants;
+  // Property: random valid flow-control packets round-trip bit-exact.
+  Rng rng(0xF10C2222ull);
+  bool all_ok = true;
+  for (int it = 0; it < 5000; ++it) {
+    FlowControlKind kind =
+        (rng.below(2) == 0) ? FlowControlKind::SampleCount : FlowControlKind::RealTime;
+    TimingFlowControlPacket p{};
+    p.header.packet_type = c::packet_type::COMMAND;
+    p.header.class_id_present = true;
+    p.header.tsm = c::tsm::DATA;
+    p.header.tsi = c::tsi::UTC;
+    p.header.tsf = flow_control_tsf(kind);
+    p.header.seq_num = static_cast<uint8_t>(rng.below(16));
+    p.header.stream_id = static_cast<uint32_t>(rng.next());
+    p.header.information_class = c::information_class::DATA_PLANE_FLOW_CONTROL;
+    p.header.packet_class = flow_control_packet_class(kind);
+    p.header.integer_seconds = static_cast<uint32_t>(rng.next());
+    p.header.fractional_seconds = rng.next();
+    p.kind = kind;
+    p.cam.controllee_id_present = true;
+    p.cam.controller_id_present = true;
+    p.cam.action_mode = difi::command::action_mode::EXECUTE;
+    p.message_id = static_cast<uint32_t>(rng.next());
+    p.controllee_id = static_cast<uint32_t>(rng.next());
+    p.controller_id = static_cast<uint32_t>(rng.next());
+    p.reference_point = c::command::REF_POINT;
+    p.sample_rate_hz = static_cast<double>(rng.below(6000000000ull));
+    p.timestamp_adjust_fs = rng.range_i32(-1000000, 1000000);
+    p.buffer.size_bytes = rng.next();
+    p.buffer.overflow = rng.below(2) == 1;
+    p.buffer.near_full = rng.below(2) == 1;
+    p.buffer.near_empty = rng.below(2) == 1;
+    p.buffer.underflow = rng.below(2) == 1;
+    p.buffer.level = static_cast<uint32_t>(rng.next()) & ~0xFu;
+    auto bytes = p.pack();
+    auto back = TimingFlowControlPacket::unpack(bytes);
+    if (!(back == p)) {
+      all_ok = false;
+      std::printf("FAIL flow-control round-trip at it=%d\n", it);
+      break;
+    }
+  }
+  CHECK(all_ok);
+
+  // Fuzz: random command-ish buffers must only ever throw DifiError, never crash.
+  Rng frng(0xF10CDEADBEEF0001ull);
+  bool fuzz_ok = true;
+  for (int it = 0; it < FUZZ_ITERS; ++it) {
+    size_t len = (frng.below(120) / 4) * 4;
+    std::vector<uint8_t> buf(len);
+    for (auto& b : buf) b = static_cast<uint8_t>(frng.next());
+    if ((frng.next() & 1) && buf.size() >= 16) {
+      uint32_t words = static_cast<uint32_t>(buf.size() / 4) & 0xFFFF;
+      uint32_t word0 = (uint32_t(c::packet_type::COMMAND) << 28) | 0x08000000u | words;
+      buf[0] = uint8_t(word0 >> 24); buf[1] = uint8_t(word0 >> 16);
+      buf[2] = uint8_t(word0 >> 8);  buf[3] = uint8_t(word0);
+      buf[8] = 0x00; buf[9] = 0x6A; buf[10] = 0x62; buf[11] = 0x1E;
+      uint16_t cls = (frng.next() & 1) ? 0x0005 : 0x0006;
+      buf[14] = uint8_t(cls >> 8); buf[15] = uint8_t(cls);
+    }
+    try {
+      TimingFlowControlPacket::unpack(buf);
+    } catch (const DifiError&) {
+    } catch (const std::exception& e) {
+      fuzz_ok = false;
+      std::printf("FAIL: flow-control unpack non-DifiError at it=%d: %s\n", it, e.what());
+      break;
+    }
+    try {
+      Decoder dec;
+      dec.decode(buf);
+    } catch (const DifiError&) {
+    } catch (const std::exception& e) {
+      fuzz_ok = false;
+      std::printf("FAIL: decoder non-DifiError on command bytes at it=%d: %s\n", it, e.what());
+      break;
+    }
+  }
+  CHECK(fuzz_ok);
 }
 
 // Shared Command-Packet core — spec difi-1.2-dataplane task 2. Mirrors the
@@ -627,7 +713,8 @@ static void test_flow_control() {
   bad[14] = 0x00;
   bad[15] = 0x99;
   CHECK(throws([&] { TimingFlowControlPacket::unpack(bad); }));
-  std::vector<uint8_t> short_buf(sc.pack().begin(), sc.pack().begin() + 80);
+  auto full = sc.pack();  // one allocation — do NOT call pack() twice across an iterator pair
+  std::vector<uint8_t> short_buf(full.begin(), full.begin() + 80);
   CHECK(throws([&] { TimingFlowControlPacket::unpack(short_buf); }));
   // The Decoder routes a flow-control packet with NO prior Signal Context for its stream
   // (the bit-depth gate must not block it).
@@ -696,6 +783,7 @@ int main() {
   test_mapper_rejects_bad_depth();
   test_property_iq_round_trip();
   test_fuzz_decoder_never_crashes();
+  test_flow_control_property_and_fuzz();
   test_segmented_encode_reassembles();
   test_tcp_dev_mode_exchange();
 
