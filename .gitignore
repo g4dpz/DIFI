@@ -42,6 +42,10 @@ CMakeFiles/
 # fetched on demand by tests/conformance/setup.sh, never redistributed here).
 tests/conformance/.difi-cert/
 
+# Signal generator working dir: large regenerated raw I/Q (never committed; the
+# committed manifest in signals/ reproduces it on demand).
+work/
+
 # OS / editor
 .DS_Store
 *.swp

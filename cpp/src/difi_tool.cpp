@@ -132,6 +132,93 @@ int map_check(uint8_t bit_depth) {
   return 0;
 }
 
+constexpr const char* REFERENCE_SIGNAL_NAME = "afs-style-tone-4096";
+
+// Minimal JSON field readers for our own stable manifest format.
+static std::string json_string_field(const std::string& t, const std::string& key) {
+  auto n = t.find("\"" + key + "\"");
+  if (n == std::string::npos) return "";
+  auto colon = t.find(':', n);
+  auto q1 = t.find('"', colon + 1);
+  auto q2 = t.find('"', q1 + 1);
+  if (q1 == std::string::npos || q2 == std::string::npos) return "";
+  return t.substr(q1 + 1, q2 - q1 - 1);
+}
+static long json_number_field(const std::string& t, const std::string& key) {
+  auto n = t.find("\"" + key + "\"");
+  if (n == std::string::npos) return -1;
+  auto colon = t.find(':', n);
+  return std::stol(t.substr(colon + 1));
+}
+
+// Generate the reference signal: raw cf32 to <work-dir> (gitignored), manifest to the
+// tracked signals/ dir. Byte-identical to the Rust tool (same generator + encoding).
+int generate_signal_cmd(const std::string& work_dir) {
+  difi::SignalParams params;
+  auto iq = difi::generate_signal(params);
+  auto raw = difi::encode_cf32(iq);
+  std::string sha = difi::sha256_hex(raw);
+
+  std::error_code ec;
+  std::filesystem::create_directories(work_dir, ec);
+  std::string raw_path = work_dir + "/" + REFERENCE_SIGNAL_NAME + ".cf32";
+  if (!write_file(raw_path, raw)) {
+    std::fprintf(stderr, "error: cannot write %s\n", raw_path.c_str());
+    return 1;
+  }
+  std::filesystem::create_directories("signals", ec);
+  std::string manifest_path =
+      std::string("signals/") + REFERENCE_SIGNAL_NAME + ".manifest.json";
+
+  char buf[1200];
+  std::snprintf(
+      buf, sizeof(buf),
+      "{\n  \"name\": \"%s\",\n  \"raw_format\": \"cf32\",\n  \"byte_size\": %zu,\n"
+      "  \"sha256\": \"%s\",\n  \"params\": {\n    \"num_samples\": %zu,\n"
+      "    \"sample_rate_hz\": %lld,\n    \"tone1_hz\": %lld,\n    \"tone2_hz\": %lld,\n"
+      "    \"peak\": %g\n  },\n  \"difi\": {\n    \"bit_depth\": %u,\n"
+      "    \"full_scale\": %lld,\n    \"rf_reference_hz\": %lld,\n"
+      "    \"bandwidth_hz\": %lld,\n    \"sample_rate_hz\": %lld,\n    \"gain_db\": %g\n  },\n"
+      "  \"regen_command\": \"difi-tool generate <work-dir> (writes %s.cf32)\"\n}\n",
+      REFERENCE_SIGNAL_NAME, raw.size(), sha.c_str(), params.num_samples,
+      (long long)params.sample_rate_hz, (long long)params.tone1_hz,
+      (long long)params.tone2_hz, (double)params.peak, EXPORT_BIT_DEPTH,
+      (long long)EXPORT_FULL_SCALE, (long long)2401000000LL,
+      (long long)params.sample_rate_hz, (long long)params.sample_rate_hz, -3.5,
+      REFERENCE_SIGNAL_NAME);
+  std::ofstream mf(manifest_path);
+  mf << buf;
+  mf.close();
+
+  std::printf("generated %zu samples\n", iq.size());
+  std::printf("  raw      %s (%zu bytes, gitignored)\n", raw_path.c_str(), raw.size());
+  std::printf("  manifest %s (committed)\n", manifest_path.c_str());
+  std::printf("  sha256   %s\n", sha.c_str());
+  return 0;
+}
+
+int verify_manifest_cmd(const std::string& manifest_path) {
+  auto bytes = read_file(manifest_path);
+  std::string text(bytes.begin(), bytes.end());
+  std::string recorded_sha = json_string_field(text, "sha256");
+  long recorded_size = json_number_field(text, "byte_size");
+
+  difi::SignalParams params;
+  auto iq = difi::generate_signal(params);
+  auto raw = difi::encode_cf32(iq);
+  std::string actual_sha = difi::sha256_hex(raw);
+
+  std::printf("verifying %s\n", manifest_path.c_str());
+  std::printf("  recorded size=%ld sha256=%s\n", recorded_size, recorded_sha.c_str());
+  std::printf("  regen    size=%zu sha256=%s\n", raw.size(), actual_sha.c_str());
+  if (static_cast<long>(raw.size()) == recorded_size && actual_sha == recorded_sha) {
+    std::printf("MANIFEST OK — regenerated signal matches recorded SHA-256\n");
+    return 0;
+  }
+  std::fprintf(stderr, "error: regenerated signal does not match the manifest\n");
+  return 1;
+}
+
 // Print the DIFI integer codes of the generated reference signal, so the two
 // implementations' generated+mapped output can be diffed for exact equality.
 int gen_check() {
@@ -302,6 +389,10 @@ int main(int argc, char** argv) {
     if (argc >= 3 && std::string(argv[1]) == "export") return export_signal(argv[2]);
     if (argc >= 3 && std::string(argv[1]) == "import") return import_signal(argv[2]);
     if (argc >= 2 && std::string(argv[1]) == "gen-check") return gen_check();
+    if (argc >= 3 && std::string(argv[1]) == "generate")
+      return generate_signal_cmd(argv[2]);
+    if (argc >= 3 && std::string(argv[1]) == "verify-manifest")
+      return verify_manifest_cmd(argv[2]);
     usage();
     return 1;
   } catch (const std::exception& e) {

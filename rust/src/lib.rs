@@ -12,8 +12,10 @@ pub mod decoder;
 pub mod encoder;
 pub mod error;
 pub mod iq;
+pub mod manifest;
 pub mod mapper;
 pub mod packet;
+pub mod sha256;
 pub mod signal;
 pub mod transport;
 
@@ -21,6 +23,7 @@ pub use decoder::{Decoder, DifiPacket};
 pub use encoder::StreamEncoder;
 pub use error::{DifiError, Result};
 pub use iq::IqSample;
+pub use manifest::{build as build_manifest, DifiContext, Manifest};
 pub use mapper::{
     difi_to_float, float_to_difi, measure_implementation_loss, LossReport, ScalingConvention,
 };

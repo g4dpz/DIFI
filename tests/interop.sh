@@ -119,7 +119,36 @@ run_e2e "cpp  -> cpp"  $((E2E_PORT_BASE + 1)) "$CPP_TOOL"  "$CPP_TOOL"
 run_e2e "cpp  -> rust" $((E2E_PORT_BASE + 2)) "$RUST_TOOL" "$CPP_TOOL"
 run_e2e "rust -> cpp"  $((E2E_PORT_BASE + 3)) "$CPP_TOOL"  "$RUST_TOOL"
 
-echo "== 7. DIFI Consortium conformance (external oracle) =="
+echo "== 7. reproducible signal + manifest (Req 6.1, 6.2) =="
+MAN_WORK="$TMP/manwork"
+# Each tool regenerates the raw signal; both must produce the same SHA-256, and each
+# must verify the committed manifest.
+r_sha="$("$RUST_TOOL" generate "$MAN_WORK/rust" 2>/dev/null | grep sha256 | awk '{print $2}')"
+c_sha="$("$CPP_TOOL"  generate "$MAN_WORK/cpp"  2>/dev/null | grep sha256 | awk '{print $2}')"
+if [ -n "$r_sha" ] && [ "$r_sha" = "$c_sha" ]; then
+  echo "  ok  generated raw cf32 SHA-256 identical (rust == cpp): ${r_sha:0:16}..."
+else
+  echo "FAIL: manifest SHA mismatch (rust=$r_sha cpp=$c_sha)"; exit 1
+fi
+MAN="$ROOT/signals/afs-style-tone-4096.manifest.json"
+if [ -f "$MAN" ]; then
+  for tl in "rust:$RUST_TOOL" "cpp:$CPP_TOOL"; do
+    l="${tl%%:*}"; t="${tl#*:}"
+    if "$t" verify-manifest "$MAN" >/dev/null 2>&1; then
+      echo "  ok  $l regenerates + verifies committed manifest SHA-256"
+    else
+      echo "FAIL: $l could not verify committed manifest"; exit 1
+    fi
+  done
+else
+  echo "  note: no committed manifest at signals/ (run: difi-tool generate work)"
+fi
+# The raw signal must never be committable.
+( cd "$ROOT" && git check-ignore work/x.cf32 >/dev/null 2>&1 ) \
+  && echo "  ok  raw I/Q working dir is gitignored (artifact policy)" \
+  || echo "  warn: work/ not gitignored"
+
+echo "== 8. DIFI Consortium conformance (external oracle) =="
 VENV_PY="${DIFI_VENV_PY:-/tmp/difi-venv/bin/python3}"
 if [ -x "$VENV_PY" ] && "$VENV_PY" -c "import construct" 2>/dev/null; then
   for tool_label in "rust:$RUST_TOOL" "cpp:$CPP_TOOL"; do

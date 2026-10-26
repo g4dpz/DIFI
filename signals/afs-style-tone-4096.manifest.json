@@ -1,0 +1,22 @@
+{
+  "name": "afs-style-tone-4096",
+  "raw_format": "cf32",
+  "byte_size": 32768,
+  "sha256": "baa9144181b4e2fe2fc67cbea584f590ebb36394a34b7733d2644c4a5ca35986",
+  "params": {
+    "num_samples": 4096,
+    "sample_rate_hz": 1250000,
+    "tone1_hz": 50000,
+    "tone2_hz": -120000,
+    "peak": 0.9
+  },
+  "difi": {
+    "bit_depth": 16,
+    "full_scale": 1,
+    "rf_reference_hz": 2401000000,
+    "bandwidth_hz": 1250000,
+    "sample_rate_hz": 1250000,
+    "gain_db": -3.5
+  },
+  "regen_command": "difi-tool generate <work-dir> (writes afs-style-tone-4096.cf32)"
+}

@@ -15,12 +15,12 @@ Shared, committed in `tests/golden/`:
   wire-format oracle. See `tests/golden/MANIFEST.md` for documented field values and
   SHA-256 checksums.
 
-## Scope (spec tasks 1–10, 12)
+## Scope (spec tasks 1–12)
 
 Each implementation provides a standalone, unit-tested DIFI 1.1 codec, UDP transport,
-and a float↔integer sample mapper, all **validated against the DIFI Consortium's own
-reference definitions**, plus an **end-to-end reference-signal export/import** proven
-across both implementations:
+a float↔integer sample mapper, and a **reproducible signal generator + manifest
+writer**, all **validated against the DIFI Consortium's own reference definitions**,
+plus an **end-to-end reference-signal export/import** proven across both implementations:
 
 - Constants for the DIFI 1.1 profile (VITA OUI `0x6A621E`, 7-word header, class codes).
 - Packet model: `SignalDataPacket`, `SignalContextPacket`, `VersionContextPacket` with
@@ -43,6 +43,12 @@ across both implementations:
   validate clean against the Consortium's vendored `construct` definitions. See
   `tests/conformance/`.
 
+- **Signal generator + manifest writer** (task 11 / Req 6): a deterministic generator
+  reproduces a reference signal from committed parameters; `generate` writes the large
+  raw cf32 to a gitignored `work/` dir and a small manifest to the tracked `signals/`
+  dir (SHA-256, byte size, sample format, DIFI context params, regen command);
+  `verify-manifest` regenerates and confirms the SHA-256 matches. Both implementations
+  produce byte-identical raw output. See `signals/README.md`.
 - **End-to-end signal export/import** (task 12 / Req 7.1, 7.3): a deterministic
   reference float32 signal is generated from parameters (no raw I/Q committed), mapped
   to DIFI integer, encoded, sent over UDP, decoded, inverse-mapped, and compared against
@@ -50,10 +56,11 @@ across both implementations:
   (end-to-end loss equals mapper-only loss — transport/codec add nothing), in all four
   directions including cross-language. Evidence: `docs/interop/EXPORT-IMPORT-EVIDENCE.md`.
 
-The signal generator + manifest writer (task 11) and the Wireshark dissector check
-(Req 3.1) are the remaining increments. The export/import uses a reproducible
-LSIS-AFS-*style* waveform; swapping in a real vector's committed parameters (task 11)
-would make the evidence use canonical data without changing the pipeline.
+Cross-decode against an external DIFI implementation (task 13), the Wireshark dissector
+check (Req 3.1), and property/fuzz hardening (task 14) are the remaining increments. The
+committed reference signal is a reproducible LSIS-AFS-*style* waveform; swapping in a
+real vector's committed parameters would make the evidence use canonical data without
+changing the pipeline (Req 6.4: host the large canonical data externally by SHA-256).
 
 ## Conformance finding (why task 10 mattered)
 
