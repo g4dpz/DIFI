@@ -179,7 +179,7 @@ fn golden_flow_control(kind: FlowControlKind) -> TimingFlowControlPacket {
         buffer: BufferState {
             size_bytes: 1 << 20,
             near_full: true,
-            level: 0x0030_0000,
+            level: 0x0300, // 12-bit fill level (bits 15-4 of the status word)
             ..BufferState::default()
         },
     }

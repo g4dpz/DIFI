@@ -108,8 +108,8 @@ Class `0x0002`, TSF = sample count, fractional field = sample count `4096`.
 ### `timing_flow_control_sc.difi.bin` (84 bytes, 21 words) — Packet Class `0x0005`
 ### `timing_flow_control_rt.difi.bin` (84 bytes, 21 words) — Packet Class `0x0006`
 
-SHA-256 (sc): `25cdc3322933a28d88585d0a5cf62c7ba0f467d8961f1cd0d64fea8d010c3e99`
-SHA-256 (rt): `da17d53d19e68050dd579bb78219567336fdba395c294ff8770611a6147aee9e`
+SHA-256 (sc): `4b2db547a4f9f03eabd9f2534d96993e9d29f07efb0cb4f59932bed2585c8d74`
+SHA-256 (rt): `7bc58586e76f4d9072d10d5f7689b5df6b54423e816eece2544e62b66d0ab443`
 
 VITA 49.2 Command Packets (VRT type `0x6`). Per the v1.2.1 reference, the Information
 Class pairs with the Packet Class: **`0x0005` uses Information Class `0x0002`** (and
@@ -125,7 +125,7 @@ Both validate clean against `difi_command_v1_2_1`. Field values:
 | Sample Rate | `1.25e6` Hz (stored `round(value · 2²⁰)`) |
 | Timestamp Adjustment | `2500` fs |
 | Buffer Size | `1048576` bytes (`1 << 20`) |
-| Buffer Status | Near-Full set; buffer level `0x00300000` |
+| Buffer Status | Near-Full set; 12-bit buffer level `0x300` (bits 15-4 of word 21) |
 
 CIF0 declares Reference Point (bit 30) + Sample Rate (bit 21) + Timestamp Adjustment
 (bit 20) + CIF1 present (**bit 1**, per the v1.2.1 reference) → CIF0 = `0x40300002`; CIF1

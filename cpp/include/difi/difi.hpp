@@ -229,14 +229,17 @@ constexpr uint32_t CONTROLLER_PRESENT = 29;
 constexpr uint32_t CONTROLLER_FORMAT = 28;
 constexpr uint32_t ACTION_MODE_SHIFT = 23;  // bits 24-23
 constexpr uint32_t ACTION_MODE_MASK = 0b11;
-constexpr uint32_t ACK_TYPE_SHIFT = 18;  // bits 20-18
-constexpr uint32_t ACK_TYPE_MASK = 0b111;
+constexpr uint32_t NACK = 22;          // bit 22
+constexpr uint32_t VALIDITY_ACK = 21;  // bit 21
 constexpr uint32_t TS_CONTROL_SHIFT = 12;  // bits 14-12
 constexpr uint32_t TS_CONTROL_MASK = 0b111;
+constexpr uint32_t ACK_BITS_SHIFT = 8;  // bits 11-8
+constexpr uint32_t ACK_BITS_MASK = 0b1111;
 constexpr uint32_t MODELLED_MASK =
     (1u << CONTROLLEE_PRESENT) | (1u << CONTROLLEE_FORMAT) | (1u << CONTROLLER_PRESENT) |
-    (1u << CONTROLLER_FORMAT) | (ACTION_MODE_MASK << ACTION_MODE_SHIFT) |
-    (ACK_TYPE_MASK << ACK_TYPE_SHIFT) | (TS_CONTROL_MASK << TS_CONTROL_SHIFT);
+    (1u << CONTROLLER_FORMAT) | (ACTION_MODE_MASK << ACTION_MODE_SHIFT) | (1u << NACK) |
+    (1u << VALIDITY_ACK) | (TS_CONTROL_MASK << TS_CONTROL_SHIFT) |
+    (ACK_BITS_MASK << ACK_BITS_SHIFT);
 }  // namespace cam_bits
 
 namespace action_mode {
@@ -245,20 +248,18 @@ constexpr uint8_t DRY_RUN = 0b01;
 constexpr uint8_t EXECUTE = 0b10;
 }  // namespace action_mode
 
-namespace ack_type {
-constexpr uint8_t NONE = 0b000;
-constexpr uint8_t VALIDATION = 0b100;
-}  // namespace ack_type
-
-// CAM (Control/Acknowledge Mode) field. See rust/src/command.rs for the bit layout.
+// CAM (Control/Acknowledge Mode) field, per the DIFI v1.2.1 command reference. See
+// rust/src/command.rs for the bit layout (validityAck=21, nack=22, ackBits=11-8).
 struct Cam {
   bool controllee_id_present = false;
   bool controllee_id_format = false;
   bool controller_id_present = false;
   bool controller_id_format = false;
   uint8_t action_mode = 0;
-  uint8_t ack_type = 0;
+  bool nack = false;          // bit 22
+  bool validity_ack = false;  // bit 21
   uint8_t timestamp_control = 0;
+  uint8_t ack_bits = 0;  // bits 11-8
   uint32_t reserved = 0;
 
   static Cam from_word(uint32_t w) {
@@ -269,10 +270,12 @@ struct Cam {
     c.controller_id_format = (w >> cam_bits::CONTROLLER_FORMAT) & 1;
     c.action_mode =
         static_cast<uint8_t>((w >> cam_bits::ACTION_MODE_SHIFT) & cam_bits::ACTION_MODE_MASK);
-    c.ack_type =
-        static_cast<uint8_t>((w >> cam_bits::ACK_TYPE_SHIFT) & cam_bits::ACK_TYPE_MASK);
+    c.nack = (w >> cam_bits::NACK) & 1;
+    c.validity_ack = (w >> cam_bits::VALIDITY_ACK) & 1;
     c.timestamp_control =
         static_cast<uint8_t>((w >> cam_bits::TS_CONTROL_SHIFT) & cam_bits::TS_CONTROL_MASK);
+    c.ack_bits =
+        static_cast<uint8_t>((w >> cam_bits::ACK_BITS_SHIFT) & cam_bits::ACK_BITS_MASK);
     c.reserved = w & ~cam_bits::MODELLED_MASK;
     return c;
   }
@@ -285,9 +288,11 @@ struct Cam {
     w |= static_cast<uint32_t>(controller_id_format) << cam_bits::CONTROLLER_FORMAT;
     w |= (static_cast<uint32_t>(action_mode) & cam_bits::ACTION_MODE_MASK)
          << cam_bits::ACTION_MODE_SHIFT;
-    w |= (static_cast<uint32_t>(ack_type) & cam_bits::ACK_TYPE_MASK) << cam_bits::ACK_TYPE_SHIFT;
+    w |= static_cast<uint32_t>(nack) << cam_bits::NACK;
+    w |= static_cast<uint32_t>(validity_ack) << cam_bits::VALIDITY_ACK;
     w |= (static_cast<uint32_t>(timestamp_control) & cam_bits::TS_CONTROL_MASK)
          << cam_bits::TS_CONTROL_SHIFT;
+    w |= (static_cast<uint32_t>(ack_bits) & cam_bits::ACK_BITS_MASK) << cam_bits::ACK_BITS_SHIFT;
     return w;
   }
 
@@ -333,18 +338,23 @@ struct CommandContext {
   Cif cif1{};
 };
 
-// Buffer Size + status (fill-level flags) carried by the command packet.
+// Buffer Size + status carried by the command packet. Status word (word 21) per the DIFI
+// v1.2.1 reference: bits 31-16 reserved; bits 15-4 = 12-bit Buffer Level; bit 3 Overflow,
+// 2 Near-Full, 1 Near-Empty, 0 Underflow.
 struct BufferState {
+  static constexpr uint32_t LEVEL_SHIFT = 4;
+  static constexpr uint32_t LEVEL_MASK = 0x0FFF;  // 12 bits
+
   uint64_t size_bytes = 0;
   bool overflow = false;
   bool near_full = false;
   bool near_empty = false;
   bool underflow = false;
-  uint32_t level = 0;
+  uint16_t level = 0;  // 12-bit fill level (bits 15-4)
 
   uint32_t status_word() const {
     namespace bs = constants::buffer_status;
-    uint32_t w = level & ~0xFu;
+    uint32_t w = (static_cast<uint32_t>(level) & LEVEL_MASK) << LEVEL_SHIFT;
     w |= static_cast<uint32_t>(overflow) << bs::OVERFLOW_BIT;
     w |= static_cast<uint32_t>(near_full) << bs::NEAR_FULL_BIT;
     w |= static_cast<uint32_t>(near_empty) << bs::NEAR_EMPTY_BIT;
@@ -360,7 +370,7 @@ struct BufferState {
     s.near_full = (w >> bs::NEAR_FULL_BIT) & 1;
     s.near_empty = (w >> bs::NEAR_EMPTY_BIT) & 1;
     s.underflow = (w >> bs::UNDERFLOW_BIT) & 1;
-    s.level = w & ~0xFu;
+    s.level = static_cast<uint16_t>((w >> LEVEL_SHIFT) & LEVEL_MASK);
     return s;
   }
 
@@ -803,6 +813,12 @@ inline uint8_t flow_control_tsf(FlowControlKind k) {
   return k == FlowControlKind::SampleCount ? constants::tsf::SAMPLE_COUNT
                                            : constants::tsf::REAL_TIME_PS;
 }
+// Information Class paired with the flow-control class per the v1.2.1 reference:
+// 0x0005 <-> 0x0002, 0x0006 <-> 0x0003.
+inline uint16_t flow_control_information_class(FlowControlKind k) {
+  return k == FlowControlKind::SampleCount ? constants::information_class::DATA_PLANE_FLOW_CONTROL
+                                           : constants::information_class::DATA_PLANE_FLOW_CONTROL_RT;
+}
 
 struct TimingFlowControlPacket {
   Header header{};
@@ -817,9 +833,20 @@ struct TimingFlowControlPacket {
   command::BufferState buffer{};
 
   std::vector<uint8_t> pack() const {
+    // Fail-closed CAM validation (the DIFI command profile): both IDs present, 32-bit,
+    // execute mode — reject rather than silently masking.
+    if (!cam.controllee_id_present || !cam.controller_id_present)
+      throw DifiError("Timing Flow Control requires Controllee and Controller ID present");
+    if (cam.controllee_id_format || cam.controller_id_format)
+      throw DifiError("Timing Flow Control requires 32-bit ID format (format bit 0)");
+    if (cam.action_mode != command::action_mode::EXECUTE)
+      throw DifiError("Timing Flow Control requires Action Mode = execute (0b10)");
+
     Header h = header;
     h.packet_type = constants::packet_type::COMMAND;
     h.packet_class = flow_control_packet_class(kind);
+    // Information Class is DERIVED from the kind so invalid pairings can't be emitted.
+    h.information_class = flow_control_information_class(kind);
     h.tsf = flow_control_tsf(kind);
 
     std::vector<uint8_t> out;
@@ -860,12 +887,31 @@ struct TimingFlowControlPacket {
       kind = FlowControlKind::RealTime;
     else
       throw DifiError("unrecognised packet class code");
-    size_t need = static_cast<size_t>(constants::command::WORDS) * 4;
-    if (buf.size() < need) throw DifiError("truncated timing-flow-control payload");
+    // Fail-closed structural validation before interpreting fixed offsets: exact 21-word
+    // size (reject oversized even if self-consistent), and class-specific TSF.
+    if (declared_words != constants::command::WORDS)
+      throw DifiError("Timing Flow Control must be exactly 21 words");
+    if (header.tsf != flow_control_tsf(kind))
+      throw DifiError("Timing Flow Control TSF does not match its Packet Class");
+    command::Cam cam = command::Cam::from_word(detail::get_u32(buf, 28));
+    if (!cam.controllee_id_present || !cam.controller_id_present)
+      throw DifiError("CAM: Controllee and Controller ID must be present");
+    if (cam.controllee_id_format || cam.controller_id_format)
+      throw DifiError("CAM: ID format must be 32-bit");
+    if (cam.action_mode != command::action_mode::EXECUTE)
+      throw DifiError("CAM: Action Mode must be execute (0b10)");
+    // CIF0/CIF1 must declare the fields this packet carries.
+    command::Cif cif0{detail::get_u32(buf, 44)};
+    command::Cif cif1{detail::get_u32(buf, 48)};
+    if (!(cif0.get(command::cif0::REFERENCE_POINT) && cif0.get(command::cif0::SAMPLE_RATE) &&
+          cif0.get(command::cif0::TIMESTAMP_ADJ) && cif0.get(command::cif0::CIF1_PRESENT)))
+      throw DifiError("CIF0 missing required RefPoint/SampleRate/TS-Adj/CIF1 bits");
+    if (!cif1.get(command::cif1::BUFFER_SIZE))
+      throw DifiError("CIF1 missing Buffer Size present bit");
     TimingFlowControlPacket p{};
     p.header = header;
     p.kind = kind;
-    p.cam = command::Cam::from_word(detail::get_u32(buf, 28));
+    p.cam = cam;
     p.message_id = detail::get_u32(buf, 32);
     p.controllee_id = detail::get_u32(buf, 36);
     p.controller_id = detail::get_u32(buf, 40);
@@ -879,9 +925,13 @@ struct TimingFlowControlPacket {
   }
 
   bool operator==(const TimingFlowControlPacket& o) const {
+    // Compare sample_rate by its scaled wire value (what actually round-trips), so a
+    // corrupted sample rate is detectable without relying on exact float equality.
     return header == o.header && kind == o.kind && cam == o.cam &&
            message_id == o.message_id && controllee_id == o.controllee_id &&
            controller_id == o.controller_id && reference_point == o.reference_point &&
+           detail::to_fixed_i64(sample_rate_hz, constants::scale::RADIX_20) ==
+               detail::to_fixed_i64(o.sample_rate_hz, constants::scale::RADIX_20) &&
            timestamp_adjust_fs == o.timestamp_adjust_fs && buffer == o.buffer;
   }
 };

@@ -25,7 +25,7 @@
 //! The two classes differ only in the TSF interpretation of the prologue timestamp:
 //! `0x0005` carries a **sample count**, `0x0006` carries **real-time picoseconds**.
 
-use crate::command::{BufferState, Cam, Cif};
+use crate::command::{action_mode, BufferState, Cam, Cif};
 use crate::constants::*;
 use crate::error::{DifiError, Result};
 use crate::packet::{read_u32, read_u64, validate_size, Header};
@@ -53,6 +53,15 @@ impl FlowControlKind {
         match self {
             FlowControlKind::SampleCount => tsf::SAMPLE_COUNT,
             FlowControlKind::RealTime => tsf::REAL_TIME_PS,
+        }
+    }
+
+    /// The Information Class paired with this flow-control class, per the v1.2.1
+    /// reference: `0x0005` ↔ `0x0002`, `0x0006` ↔ `0x0003`.
+    pub fn information_class(self) -> u16 {
+        match self {
+            FlowControlKind::SampleCount => information_class::DATA_PLANE_FLOW_CONTROL,
+            FlowControlKind::RealTime => information_class::DATA_PLANE_FLOW_CONTROL_RT,
         }
     }
 
@@ -86,11 +95,38 @@ pub struct TimingFlowControlPacket {
 
 impl TimingFlowControlPacket {
     pub fn pack(&self) -> Result<Vec<u8>> {
-        // Header: enforce the class code and TSF for this kind, keep the caller's other
-        // prologue fields (TSI, seq, stream id, timestamps, information class).
+        // Validate the CAM before serialising (fail-closed, not silent-mask): the DIFI
+        // command profile requires both IDs present, 32-bit format, and execute mode.
+        if !self.cam.controllee_id_present || !self.cam.controller_id_present {
+            return Err(DifiError::Invalid {
+                field: "cam.id_present",
+                detail: "Timing Flow Control requires Controllee and Controller ID present"
+                    .into(),
+            });
+        }
+        if self.cam.controllee_id_format || self.cam.controller_id_format {
+            return Err(DifiError::Invalid {
+                field: "cam.id_format",
+                detail: "Timing Flow Control requires 32-bit ID format (format bit 0)".into(),
+            });
+        }
+        if self.cam.action_mode != action_mode::EXECUTE {
+            return Err(DifiError::Invalid {
+                field: "cam.action_mode",
+                detail: format!(
+                    "Timing Flow Control requires Action Mode = execute (0b10), was 0b{:02b}",
+                    self.cam.action_mode
+                ),
+            });
+        }
+        // Header: enforce the class code, Information Class, and TSF for this kind; keep
+        // the caller's other prologue fields (TSI, seq, stream id, timestamps). The
+        // Information Class is DERIVED from the kind so the invalid pairings (e.g.
+        // 0x0002/0x0006) cannot be emitted.
         let mut header = self.header.clone();
         header.packet_type = packet_type::COMMAND;
         header.packet_class = self.kind.packet_class();
+        header.information_class = self.kind.information_class();
         header.tsf = self.kind.tsf();
 
         let total_words = command::WORDS;
@@ -142,20 +178,75 @@ impl TimingFlowControlPacket {
                 actual: header.packet_class,
             },
         )?;
-        let need = command::WORDS as usize * 4;
-        if buf.len() < need {
-            return Err(DifiError::Truncated {
-                field: "timing-flow-control payload",
-                need,
-                have: buf.len(),
+        // Fail-closed structural validation BEFORE interpreting fixed offsets as fields.
+        // A Timing Flow Control packet is exactly 21 words; anything else is rejected even
+        // if it is self-consistent (an oversized packet must not be silently accepted).
+        if declared_words != command::WORDS {
+            return Err(DifiError::SizeMismatch {
+                declared_words,
+                actual_bytes: buf.len(),
+            });
+        }
+        // Class-specific TSF: 0x0005 requires sample-count, 0x0006 real-time ps.
+        if header.tsf != kind.tsf() {
+            return Err(DifiError::Invalid {
+                field: "header.tsf",
+                detail: format!(
+                    "Packet Class 0x{:04X} requires TSF 0x{:X}, got 0x{:X}",
+                    header.packet_class,
+                    kind.tsf(),
+                    header.tsf
+                ),
             });
         }
         let cam = Cam::from_word(read_u32(buf, 28));
+        // CAM must declare both IDs present, 32-bit, execute mode (the command profile).
+        if !cam.controllee_id_present || !cam.controller_id_present {
+            return Err(DifiError::Invalid {
+                field: "cam.id_present",
+                detail: "Controllee and Controller ID must be present".into(),
+            });
+        }
+        if cam.controllee_id_format || cam.controller_id_format {
+            return Err(DifiError::Invalid {
+                field: "cam.id_format",
+                detail: "ID format must be 32-bit (format bit 0)".into(),
+            });
+        }
+        if cam.action_mode != action_mode::EXECUTE {
+            return Err(DifiError::Invalid {
+                field: "cam.action_mode",
+                detail: "Action Mode must be execute (0b10)".into(),
+            });
+        }
         let message_id = read_u32(buf, 32);
         let controllee_id = read_u32(buf, 36);
         let controller_id = read_u32(buf, 40);
-        // CIF0 at 44, CIF1 at 48 — presence bitmaps; the DIFI flow-control packet always
-        // carries all four fields, so we read them unconditionally per the fixed layout.
+        // CIF0 (word 12) / CIF1 (word 13) must declare the fields this packet carries, so
+        // a packet with cleared CIFs is not silently read as if the fields were present.
+        let cif0 = Cif(read_u32(buf, 44));
+        let cif1 = Cif(read_u32(buf, 48));
+        use crate::command::{cif0 as c0, cif1 as c1};
+        let cif0_ok = cif0.get(c0::REFERENCE_POINT)
+            && cif0.get(c0::SAMPLE_RATE)
+            && cif0.get(c0::TIMESTAMP_ADJ)
+            && cif0.get(c0::CIF1_PRESENT);
+        if !cif0_ok {
+            return Err(DifiError::Invalid {
+                field: "cif0",
+                detail: format!(
+                    "CIF0 0x{:08X} missing required Reference Point / Sample Rate / \
+                     Timestamp Adjustment / CIF1-present bits",
+                    cif0.word()
+                ),
+            });
+        }
+        if !cif1.get(c1::BUFFER_SIZE) {
+            return Err(DifiError::Invalid {
+                field: "cif1",
+                detail: format!("CIF1 0x{:08X} missing Buffer Size present bit", cif1.word()),
+            });
+        }
         let reference_point = read_u32(buf, 52);
         let sample_rate_hz = (read_u64(buf, 56) as i64) as f64 / scale::RADIX_20;
         let timestamp_adjust_fs = read_u64(buf, 64) as i64;
@@ -180,7 +271,6 @@ impl TimingFlowControlPacket {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command::action_mode;
 
     fn sample_packet(kind: FlowControlKind) -> TimingFlowControlPacket {
         let header = Header {
@@ -215,7 +305,7 @@ mod tests {
             buffer: BufferState {
                 size_bytes: 1 << 22,
                 near_full: true,
-                level: 0x00AB_C000,
+                level: 0x0ABC, // 12-bit fill level
                 ..BufferState::default()
             },
         }
@@ -259,14 +349,14 @@ mod tests {
             underflow: true,
             near_full: false,
             near_empty: true,
-            level: 0x7F00_0000,
+            level: 0x0FFF, // max 12-bit fill level
         };
         let back = TimingFlowControlPacket::unpack(&p.pack().unwrap()).unwrap();
         assert!(back.buffer.overflow);
         assert!(back.buffer.underflow);
         assert!(!back.buffer.near_full);
         assert!(back.buffer.near_empty);
-        assert_eq!(back.buffer.level, 0x7F00_0000);
+        assert_eq!(back.buffer.level, 0x0FFF);
     }
 
     #[test]
@@ -285,5 +375,49 @@ mod tests {
         p.header.stream_id = 1;
         let short = &p.pack().unwrap()[..80];
         assert!(TimingFlowControlPacket::unpack(short).is_err());
+    }
+
+    #[test]
+    fn pack_derives_information_class_from_kind() {
+        // Even if the caller set a wrong/zero info class, pack() derives the correct one.
+        let mut p = sample_packet(FlowControlKind::RealTime);
+        p.header.information_class = information_class::DATA_PLANE_FLOW_CONTROL; // wrong (0x0002)
+        let back = TimingFlowControlPacket::unpack(&p.pack().unwrap()).unwrap();
+        assert_eq!(
+            back.header.information_class,
+            information_class::DATA_PLANE_FLOW_CONTROL_RT // 0x0003, derived from RealTime
+        );
+    }
+
+    #[test]
+    fn pack_rejects_bad_cam() {
+        // Missing an ID-present flag.
+        let mut p = sample_packet(FlowControlKind::SampleCount);
+        p.cam.controller_id_present = false;
+        assert!(p.pack().is_err());
+        // Wrong action mode.
+        let mut p = sample_packet(FlowControlKind::SampleCount);
+        p.cam.action_mode = action_mode::DRY_RUN;
+        assert!(p.pack().is_err());
+    }
+
+    #[test]
+    fn unpack_rejects_cleared_cif0() {
+        let p = sample_packet(FlowControlKind::SampleCount);
+        let mut bytes = p.pack().unwrap();
+        // Zero CIF0 (word 12, bytes 44-47).
+        bytes[44..48].copy_from_slice(&0u32.to_be_bytes());
+        assert!(TimingFlowControlPacket::unpack(&bytes).is_err());
+    }
+
+    #[test]
+    fn unpack_rejects_wrong_tsf() {
+        let p = sample_packet(FlowControlKind::SampleCount);
+        let mut bytes = p.pack().unwrap();
+        // Flip TSF in word 0 (bits 21-20) to real-time (0b10) — inconsistent with 0x0005.
+        let mut w0 = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        w0 = (w0 & !(0b11 << 20)) | (0b10 << 20);
+        bytes[0..4].copy_from_slice(&w0.to_be_bytes());
+        assert!(TimingFlowControlPacket::unpack(&bytes).is_err());
     }
 }

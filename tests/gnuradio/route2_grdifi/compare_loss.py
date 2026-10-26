@@ -32,7 +32,12 @@ def main():
     bit_depth = int(sys.argv[3]) if len(sys.argv) > 3 else 16
     fs = (1 << (bit_depth - 1)) - 1  # 32767 for 16-bit — this toolkit's FS convention
 
-    n = min(len(original), len(recovered_raw))
+    if len(original) != len(recovered_raw):
+        print(f"FAIL: sample-count mismatch — original {len(original)}, "
+              f"recovered {len(recovered_raw)} (a lossless decode must recover every "
+              f"sample, not a prefix)")
+        return 1
+    n = len(original)
     if n == 0:
         print("FAIL: no samples to compare")
         return 1

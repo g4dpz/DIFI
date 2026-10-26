@@ -402,7 +402,7 @@ static void test_flow_control_property_and_fuzz() {
     p.header.tsf = flow_control_tsf(kind);
     p.header.seq_num = static_cast<uint8_t>(rng.below(16));
     p.header.stream_id = static_cast<uint32_t>(rng.next());
-    p.header.information_class = c::information_class::DATA_PLANE_FLOW_CONTROL;
+    p.header.information_class = flow_control_information_class(kind);
     p.header.packet_class = flow_control_packet_class(kind);
     p.header.integer_seconds = static_cast<uint32_t>(rng.next());
     p.header.fractional_seconds = rng.next();
@@ -421,7 +421,7 @@ static void test_flow_control_property_and_fuzz() {
     p.buffer.near_full = rng.below(2) == 1;
     p.buffer.near_empty = rng.below(2) == 1;
     p.buffer.underflow = rng.below(2) == 1;
-    p.buffer.level = static_cast<uint32_t>(rng.next()) & ~0xFu;
+    p.buffer.level = static_cast<uint16_t>(rng.next()) & 0x0FFF;  // 12-bit fill level
     auto bytes = p.pack();
     auto back = TimingFlowControlPacket::unpack(bytes);
     if (!(back == p)) {
@@ -482,13 +482,21 @@ static void test_command_core() {
   cam.controllee_id_present = true;
   cam.controller_id_present = true;
   cam.action_mode = action_mode::EXECUTE;  // 0b10 -> bit 24
-  cam.ack_type = ack_type::VALIDATION;      // 0b100 -> bit 20
+  cam.validity_ack = true;                  // bit 21
   uint32_t w = cam.to_word();
   CHECK(((w >> 31) & 1) == 1);
   CHECK(((w >> 29) & 1) == 1);
   CHECK(((w >> 23) & 0b11) == 0b10);
-  CHECK(((w >> 18) & 0b111) == 0b100);
-  CHECK(w == (0x80000000u | 0x20000000u | 0x01000000u | 0x00100000u));
+  CHECK(((w >> 21) & 1) == 1);  // validity ack
+  CHECK(w == (0x80000000u | 0x20000000u | 0x01000000u | 0x00200000u));
+  // NACK (bit 22) + ack bits (11-8) round-trip.
+  Cam cam2{};
+  cam2.nack = true;
+  cam2.ack_bits = 0b1010;
+  uint32_t w2 = cam2.to_word();
+  CHECK(((w2 >> 22) & 1) == 1);
+  CHECK(((w2 >> 8) & 0b1111) == 0b1010);
+  CHECK(Cam::from_word(w2) == cam2);
   // CIF set/clear.
   Cif c = Cif{}.with(cif0::REFERENCE_POINT, true).with(cif0::SAMPLE_RATE, true).with(
       cif0::CIF1_PRESENT, true);
@@ -504,8 +512,10 @@ static void test_command_core() {
   b.size_bytes = 1u << 20;
   b.overflow = true;
   b.near_empty = true;
-  b.level = 0x12345670;
+  b.level = 0x0ABC;  // 12-bit fill level
   uint32_t sw = b.status_word();
+  CHECK(((sw >> 4) & 0x0FFF) == 0x0ABC);  // level at bits 15-4
+  CHECK((sw >> 16) == 0);                  // bits 31-16 reserved/zero
   CHECK(((sw >> 3) & 1) == 1);
   CHECK(((sw >> 1) & 1) == 1);
   CHECK(((sw >> 2) & 1) == 0);
@@ -669,7 +679,7 @@ static TimingFlowControlPacket make_fc(FlowControlKind kind) {
   p.timestamp_adjust_fs = -5000;
   p.buffer.size_bytes = 1u << 22;
   p.buffer.near_full = true;
-  p.buffer.level = 0x00ABC000;
+  p.buffer.level = 0x0ABC;  // 12-bit fill level
   return p;
 }
 
@@ -701,13 +711,13 @@ static void test_flow_control() {
   fp.buffer.overflow = true;
   fp.buffer.underflow = true;
   fp.buffer.near_empty = true;
-  fp.buffer.level = 0x7F000000;
+  fp.buffer.level = 0x0FFF;  // max 12-bit fill level
   TimingFlowControlPacket fpb = TimingFlowControlPacket::unpack(fp.pack());
   CHECK(fpb.buffer.overflow);
   CHECK(fpb.buffer.underflow);
   CHECK(!fpb.buffer.near_full);
   CHECK(fpb.buffer.near_empty);
-  CHECK(fpb.buffer.level == 0x7F000000);
+  CHECK(fpb.buffer.level == 0x0FFF);
   // Fail-closed on wrong class / size.
   auto bad = sc.pack();
   bad[14] = 0x00;

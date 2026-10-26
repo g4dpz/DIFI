@@ -59,10 +59,19 @@ int main(int argc, char** argv) {
   }
   // Write the first `expect` recovered samples as interleaved LE float32 (cf32).
   std::ofstream f(out_path, std::ios::binary);
+  if (!f) {
+    std::printf("GR-DIFI LOSS WRITE-FAIL: cannot open %s\n", out_path.c_str());
+    return 1;
+  }
   for (int i = 0; i < expect; ++i) {
     float re = data[i].real(), im = data[i].imag();
     f.write(reinterpret_cast<const char*>(&re), 4);
     f.write(reinterpret_cast<const char*>(&im), 4);
+  }
+  f.close();
+  if (!f) {  // stream state reflects any write/flush/close failure
+    std::printf("GR-DIFI LOSS WRITE-FAIL: error writing %s (disk full?)\n", out_path.c_str());
+    return 1;
   }
   std::printf("GR-DIFI LOSS OK %zu %s\n", n, out_path.c_str());
   return 0;

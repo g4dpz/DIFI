@@ -60,7 +60,7 @@ difi::TimingFlowControlPacket golden_flow_control(difi::FlowControlKind kind) {
   p.timestamp_adjust_fs = 2500;
   p.buffer.size_bytes = 1u << 20;
   p.buffer.near_full = true;
-  p.buffer.level = 0x00300000;
+  p.buffer.level = 0x0300;  // 12-bit fill level (bits 15-4 of the status word)
   return p;
 }
 

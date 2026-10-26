@@ -158,7 +158,7 @@ fn fc_header(rng: &mut Rng, kind: FlowControlKind) -> Header {
         },
         seq_num: (rng.below(16)) as u8,
         stream_id: rng.next_u64() as u32,
-        information_class: information_class::DATA_PLANE_FLOW_CONTROL,
+        information_class: kind.information_class(),
         packet_class: kind.packet_class(),
         integer_seconds: rng.next_u64() as u32,
         fractional_seconds: rng.next_u64(),
@@ -197,7 +197,7 @@ fn property_flow_control_round_trips_bit_exact() {
                 near_full: rng.below(2) == 1,
                 near_empty: rng.below(2) == 1,
                 underflow: rng.below(2) == 1,
-                level: (rng.next_u64() as u32) & !0xF,
+                level: (rng.next_u64() as u16) & 0x0FFF, // 12-bit buffer fill level
             },
         };
         let bytes = pkt.pack().expect("pack flow control");
