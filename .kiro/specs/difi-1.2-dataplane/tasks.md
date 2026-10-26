@@ -108,7 +108,7 @@ The authoritative Command-Packet layout is in the gitignored transcription
   - _Requirements: 5.2, 6.3_
   - _Files: `tests/golden/` (+ `MANIFEST.md`); generation in both tools._
 
-- [ ] 7. Rust↔C++ interop: flow-controlled UDP exchange
+- [x] 7. Rust↔C++ interop: flow-controlled UDP exchange
   - Script a short flow-controlled stream over UDP both directions (Rust Sink↔C++ Source
     and the reverse): Source streams Signal Data, Sink emits Timing Flow Control packets,
     both interpret the buffer state consistently. Record structured evidence under
