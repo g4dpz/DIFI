@@ -212,6 +212,98 @@ static void test_mapper_rejects_bad_depth() {
   CHECK(throws([] { ScalingConvention(17, 1.0); }));
 }
 
+// --- Property + fuzz hardening (spec task 14) -------------------------------
+
+// Deterministic xorshift64* PRNG, matching the Rust fuzz harness in spirit.
+struct Rng {
+  uint64_t s;
+  explicit Rng(uint64_t seed) : s(seed | 1) {}
+  uint64_t next() {
+    uint64_t x = s;
+    x ^= x >> 12;
+    x ^= x << 25;
+    x ^= x >> 27;
+    s = x;
+    return x * 0x2545F4914F6CDD1Dull;
+  }
+  uint64_t below(uint64_t n) { return n ? next() % n : 0; }
+  int32_t range_i32(int32_t lo, int32_t hi) {
+    uint64_t span = static_cast<uint64_t>(static_cast<int64_t>(hi) - lo + 1);
+    return lo + static_cast<int32_t>(below(span));
+  }
+};
+
+constexpr int FUZZ_ITERS = 20000;
+
+// Property: random valid I/Q round-trips bit-exact at random depths.
+static void test_property_iq_round_trip() {
+  Rng rng(0xD1F10001ull);
+  bool all_ok = true;
+  for (int it = 0; it < FUZZ_ITERS; ++it) {
+    uint8_t depth = static_cast<uint8_t>(rng.range_i32(4, 16));
+    size_t n = 16 * (1 + rng.below(8));  // multiple of 16 keeps word alignment
+    auto range = sample_range(depth);
+    std::vector<IqSample> samples;
+    samples.reserve(n);
+    for (size_t k = 0; k < n; ++k)
+      samples.push_back({rng.range_i32(range.first, range.second),
+                         rng.range_i32(range.first, range.second)});
+    auto packed = pack_samples(samples, depth);
+    auto unpacked = unpack_samples(packed, 0, n, depth);
+    if (unpacked != samples) {
+      all_ok = false;
+      std::printf("FAIL round-trip depth=%u n=%zu it=%d\n", depth, n, it);
+      break;
+    }
+  }
+  CHECK(all_ok);
+}
+
+// Fuzz: random garbage buffers must only ever return a packet or throw DifiError,
+// never crash or corrupt. Run under ASan/UBSan to catch any out-of-bounds.
+static void test_fuzz_decoder_never_crashes() {
+  Rng rng(0xF0F0123456789ABCull);
+  bool all_ok = true;
+  for (int it = 0; it < FUZZ_ITERS; ++it) {
+    size_t len = rng.below(80);
+    std::vector<uint8_t> buf(len);
+    for (auto& b : buf) b = static_cast<uint8_t>(rng.next());
+    // Half the time, stamp a valid OUI + plausible pktSize to reach deeper parsing.
+    if ((rng.next() & 1) && buf.size() >= 12) {
+      uint32_t words = static_cast<uint32_t>(buf.size() / 4);
+      uint32_t ptype = static_cast<uint32_t>(rng.below(16)) << 28;
+      uint32_t word0 = ptype | (words & 0xFFFF);
+      buf[0] = uint8_t(word0 >> 24); buf[1] = uint8_t(word0 >> 16);
+      buf[2] = uint8_t(word0 >> 8);  buf[3] = uint8_t(word0);
+      buf[8] = 0x00; buf[9] = 0x6A; buf[10] = 0x62; buf[11] = 0x1E;
+    }
+    uint32_t sid = 0;
+    if (buf.size() >= 8)
+      sid = (uint32_t(buf[4]) << 24) | (uint32_t(buf[5]) << 16) |
+            (uint32_t(buf[6]) << 8) | uint32_t(buf[7]);
+    try {
+      Decoder dec;
+      dec.set_bit_depth(sid, 16);
+      auto pkt = dec.decode(buf);
+      // Accidentally-valid packet: must be a known kind.
+      if (!(pkt.kind == PacketKind::SignalData ||
+            pkt.kind == PacketKind::SignalContext ||
+            pkt.kind == PacketKind::VersionContext)) {
+        all_ok = false;
+        std::printf("FAIL: decode returned unknown kind at it=%d\n", it);
+        break;
+      }
+    } catch (const DifiError&) {
+      // Expected for malformed input.
+    } catch (const std::exception& e) {
+      all_ok = false;
+      std::printf("FAIL: non-DifiError thrown at it=%d: %s\n", it, e.what());
+      break;
+    }
+  }
+  CHECK(all_ok);
+}
+
 int main() {
   test_iq_round_trip();
   test_iq_rejections();
@@ -224,6 +316,8 @@ int main() {
   test_mapper_clamps();
   test_mapper_loss_measured();
   test_mapper_rejects_bad_depth();
+  test_property_iq_round_trip();
+  test_fuzz_decoder_never_crashes();
 
   std::printf("%d checks, %d failures\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;

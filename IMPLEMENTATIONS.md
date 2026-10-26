@@ -10,6 +10,9 @@ story — neither is "correct by its own definition".
 | `rust/` | Rust (2021) | `cargo build` | `cargo test` |
 | `cpp/`  | C++17 (header-only lib) | `cmake -S cpp -B cpp/build && cmake --build cpp/build` | `ctest --test-dir cpp/build` |
 
+Hardening: run the C++ tests (incl. the fuzz harness) under sanitizers with
+`cmake -S cpp -B cpp/build-san -DDIFI_SANITIZE=ON && cmake --build cpp/build-san && cpp/build-san/difi_tests`.
+
 Shared, committed in `tests/golden/`:
 - Golden DIFI 1.1 packets (Signal Context, Version Context, Signal Data) — the shared
   wire-format oracle. See `tests/golden/MANIFEST.md` for documented field values and
@@ -61,12 +64,20 @@ plus an **end-to-end reference-signal export/import** proven across both impleme
   (end-to-end loss equals mapper-only loss — transport/codec add nothing), in all four
   directions including cross-language. Evidence: `docs/interop/EXPORT-IMPORT-EVIDENCE.md`.
 
-Property/fuzz hardening (task 14), cross-decode against **gr-difi** or vendor hardware
-(a stronger form of task 13), and the Wireshark dissector check (Req 3.1) are the
-remaining increments. The committed reference signal is a reproducible LSIS-AFS-*style*
-waveform; swapping in a real vector's committed parameters would make the evidence use
-canonical data without changing the pipeline (Req 6.4: host the large canonical data
-externally by SHA-256).
+- **Property + fuzz hardening** (task 14 / strengthens Req 1.4, 1.5): random valid
+  configs round-trip bit-exact, and the decoder fed tens of thousands of random
+  malformed buffers only ever returns a packet or a typed error — never panics or
+  mis-parses. Deterministic, seeded, dependency-free (`rust/tests/fuzz.rs`; C++
+  `test_fuzz_decoder_never_crashes` / `test_property_iq_round_trip`). The C++ fuzz run
+  is verified clean under **AddressSanitizer + UndefinedBehaviorSanitizer**
+  (`cmake -DDIFI_SANITIZE=ON`), so the decoder's byte-slice bounds are proven, not just
+  reasoned about.
+
+Cross-decode against **gr-difi** or vendor hardware (a stronger form of task 13) and the
+Wireshark dissector check (Req 3.1) are the remaining increments. The committed
+reference signal is a reproducible LSIS-AFS-*style* waveform; swapping in a real vector's
+committed parameters would make the evidence use canonical data without changing the
+pipeline (Req 6.4: host the large canonical data externally by SHA-256).
 
 ## Conformance finding (why task 10 mattered)
 

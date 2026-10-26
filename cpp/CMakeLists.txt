@@ -11,6 +11,15 @@ endif()
 
 add_compile_options(-Wall -Wextra -Wpedantic)
 
+# Optional sanitizers for fuzz/hardening runs: cmake -DDIFI_SANITIZE=ON
+# Builds the tests with AddressSanitizer + UndefinedBehaviorSanitizer so any
+# out-of-bounds read or UB in the parse paths is caught during fuzzing.
+option(DIFI_SANITIZE "Build with Address+UB sanitizers" OFF)
+if(DIFI_SANITIZE)
+  add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
+  add_link_options(-fsanitize=address,undefined)
+endif()
+
 # Header-only DIFI library.
 add_library(difi INTERFACE)
 target_include_directories(difi INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
