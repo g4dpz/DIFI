@@ -89,7 +89,7 @@ The authoritative Command-Packet layout is in the gitignored transcription
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 4.4_
   - _Files: `rust/src/decoder.rs`, `rust/src/encoder.rs`, `rust/src/packet.rs`, C++ header._
 
-- [ ] 5. Backward-compatibility regression gate
+- [x] 5. Backward-compatibility regression gate
   - Re-run the full 1.1 suite and assert it is still green and the 1.1 golden packets are
     byte-identical (Req 4.2, 4.3). Add an explicit test that a canonical 1.1 Signal
     Data/Context/Version packet decodes identically before and after the 1.2 additions.
