@@ -386,6 +386,12 @@ fn import_impl(bind_addr: &str, interop: bool) -> Result<(), String> {
     rx.set_read_timeout(Some(Duration::from_secs(15)))
         .map_err(|e| e.to_string())?;
     let mut dec = Decoder::new();
+    // In interop mode the sample format is known out of band (16-bit, per the export
+    // convention). Pre-register it so a peer that sends Signal Context on its own
+    // cadence — or not before the first data packet, as gr-difi does — still decodes.
+    if interop {
+        dec.set_bit_depth(STREAM_ID, EXPORT_BIT_DEPTH);
+    }
 
     let mut recovered_codes: Vec<IqSample> = Vec::with_capacity(total);
     let mut ctx_seen = false;
@@ -397,7 +403,7 @@ fn import_impl(bind_addr: &str, interop: bool) -> Result<(), String> {
             DifiPacket::VersionContext(_) => {}
         }
     }
-    if !ctx_seen {
+    if !ctx_seen && !interop {
         return Err("no Signal Context packet received before data".into());
     }
 

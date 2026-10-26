@@ -50,11 +50,18 @@ plus an **end-to-end reference-signal export/import** proven across both impleme
   reference decode in our tools, and our packets parse+validate in the reference.
   Evidence: `docs/interop/CROSS-DECODE-EVIDENCE.md`. (This is the certification
   reference, not gr-difi; see the caveat there.)
-- **GNU Radio interop** (Req 7.2, Route 1): a GNU Radio flowgraph exchanges a full DIFI
+- **GNU Radio interop — Route 1** (Req 7.2): a GNU Radio flowgraph exchanges a full DIFI
   stream with both our tools over UDP (`network.socket_pdu`), both directions, recovered
   within 1 LSB. GNU Radio's runtime + UDP block are in the path; the DIFI codec on that
-  side is the Consortium reference (gr-difi — Route 2 — is future work). Harness:
-  `tests/gnuradio/`; evidence: `docs/interop/GNURADIO-EVIDENCE.md`.
+  side is the Consortium reference. Harness: `tests/gnuradio/`; evidence:
+  `docs/interop/GNURADIO-EVIDENCE.md`.
+- **GNU Radio interop — Route 2, gr-difi** (Req 7.2): interop with gr-difi's OWN DIFI
+  blocks (`difi_sink_cpp`/`difi_source_cpp`) — a codec independent of ours and of the
+  reference. ours→gr-difi decodes all 4096 samples; gr-difi→ours packets parse in our
+  tools and validate in the reference. Verified at the packet/sample-count level (not a
+  loss round-trip — gr-difi uses its own scaling); gr-difi's sink is flaky and needed
+  macOS build patches. Harness: `tests/gnuradio/route2_grdifi/`; evidence +
+  caveats: `docs/interop/GNURADIO-GRDIFI-EVIDENCE.md`.
 
 - **Signal generator + manifest writer** (task 11 / Req 6): a deterministic generator
   reproduces a reference signal from committed parameters; `generate` writes the large
