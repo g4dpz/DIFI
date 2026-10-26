@@ -131,11 +131,15 @@ The authoritative Command-Packet layout is in the gitignored transcription
   - _Requirements: 7.3, 7.5_
   - _Files: `tests/gnuradio/`, `docs/interop/`._
 
-- [ ] 12. Close 1.1 gap — correct the 1.1 design doc DQ wording
-  - Update `.kiro/specs/difi-iq-interop/design.md` so DQ-1 (Rust+C++), DQ-2 (16-bit
-    full-scale), DQ-3 (version target) read as resolved, matching the tasks.md "Known
-    gaps" note that already flags the mismatch. Note the version target now extends to
-    1.2.1 via this feature.
+- [ ] 12. Close 1.1 gap — fold DQ-2/DQ-4 resolutions into the 1.1 design doc
+  - The DQ-3 version-target wording in `.kiro/specs/difi-iq-interop/design.md` ("1.1 only")
+    has **already been corrected** (it read as contradicting this feature and 1.3.0; now it
+    states 1.1 is that feature's scope while the toolkit targets 1.3.0 via 1.2/1.3.0).
+    DQ-1 and DQ-2 already read as resolved.
+  - Remaining for this task: once tasks 9 (scaling vs reference-gain guidance) and 10
+    (dataset-hosting decision) land, update the 1.1 design's DQ-2 caveat and DQ-4 to
+    record their outcomes, so no DQ in the 1.1 design reads as an unresolved open question
+    that is actually settled.
   - _Requirements: 7.4, 7.5_
   - _Files: `.kiro/specs/difi-iq-interop/design.md`._
 

@@ -34,8 +34,14 @@ recorded here; see `tasks.md` and `IMPLEMENTATIONS.md` for the implementing work
   round-half-away-from-zero, saturating; `full_scale` recorded in the manifest.
   **Caveat (Req 4.3):** the convention is documented and pinned but **not yet reconciled
   against the DIFI MILCOM reference-gain/scaling guidance** — open follow-up.
-- **DQ-3 DIFI version — RESOLVED: 1.1 only.** 1.2.1 (flow control, command packets)
-  remains a future increment; the packet-type/class handling leaves room for it.
+- **DQ-3 DIFI version — RESOLVED for this feature: 1.1.** This `difi-iq-interop` feature
+  implements the DIFI 1.1 data plane; the packet-type/class handling deliberately leaves
+  room for later versions. The version target of the *toolkit as a whole* has since
+  advanced beyond 1.1: ESA's ESTRACK will use **DIFI 1.3.0**, and two follow-on features
+  now carry the toolkit there — `difi-1.2-dataplane` (the 1.2 flow-control / sample-count
+  data plane and the shared Command-Packet core) and `difi-link-establishment-1.3.0` (the
+  1.3.0 control plane). Build order: 1.1 (this feature, shipped) → 1.2 → 1.3.0 = full DIFI
+  1.3.0. So "1.1 only" describes this feature's scope, not a decision to stop at 1.1.
 - **DQ-4 Canonical dataset hosting — OPEN.** The manifest records a SHA-256 so large data
   can be hosted externally (Zenodo vs Release assets), but no real canonical dataset is
   wired up yet; the committed reference is a reproducible LSIS-AFS-*style* waveform, not

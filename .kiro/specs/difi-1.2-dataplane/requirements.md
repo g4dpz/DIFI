@@ -226,8 +226,12 @@ with a recorded reason.
    than implied as full.
 4. **(1.1 design DQ resolution.)** The design decisions resolved in practice during the 1.1
    work (DQ-1 Rust+C++, DQ-2 16-bit full-scale, DQ-3 version target) SHALL be reflected
-   accurately in this feature's design, and the 1.1 `design.md` open-question wording SHALL
-   be corrected to match reality.
+   accurately in the 1.1 `design.md`. The DQ-3 version-target wording ("1.1 only") was the
+   one that actively contradicted this feature and the 1.3.0 feature; it has **already been
+   corrected** to state that 1.1 is that feature's scope while the toolkit targets 1.3.0
+   via 1.2 and 1.3.0 (so the three specs are self-consistent today). What remains for this
+   feature is to fold the **DQ-2 scaling caveat** (Req 7.1) and **DQ-4 dataset-hosting**
+   (Req 7.2) resolutions back into the 1.1 design once their implementation-time work lands.
 5. WHERE a gap cannot be fully closed in this iteration THEN it SHALL be re-recorded as a
    known gap with a specific reason and a pointer to the increment that will address it —
    never silently dropped.
