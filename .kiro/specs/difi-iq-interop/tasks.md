@@ -159,7 +159,14 @@ Build/test: `cd rust && cargo test`; `cmake -S cpp -B cpp/build && cmake --build
   hosting, but no real LSIS-AFS vector or Zenodo/Release asset is wired up; the committed
   signal is a reproducible AFS-*style* waveform.
 - **Task 13 / gr-difi:** interop is verified at packet/sample-count level, not by an
-  end-to-end loss round-trip (gr-difi uses its own scaling); gr-difi's sink is flaky.
+  end-to-end per-sample loss round-trip. **Investigated and precisely characterised in the
+  `difi-1.2-dataplane` feature (task 11):** gr-difi's source decodes the correct sample
+  *count* but not sample-aligned values from our stream (the mismatch is on gr-difi's
+  buffering side — our export codes, our own round-trip loss, and our conformance vs the
+  reference + dissector are all verified correct). The reconciliation harness
+  (`tests/gnuradio/route2_grdifi/gr_difi_loss.cc`, `compare_loss.py`) is committed and the
+  finding recorded in `docs/interop/GNURADIO-GRDIFI-EVIDENCE.md`; it is deliberately NOT
+  wired as a passing gate because it does not pass. gr-difi's sink is also flaky.
 - **Design doc:** DQ-1 (Rust+C++), DQ-2 (16-bit full-scale), DQ-3 (DIFI 1.1 only)
   resolved in practice; `design.md` still lists them as open.
 

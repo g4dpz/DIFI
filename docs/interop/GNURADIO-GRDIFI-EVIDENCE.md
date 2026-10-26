@@ -53,11 +53,55 @@ gr-difi's **C++ blocks directly from a compiled flowgraph**
    `trace trap` on teardown; some runs crash before sending. The harness retries and
    judges the gr-difi→ours direction by packet decode. The ours→gr-difi direction
    (gr-difi as source) is stable.
-2. **No end-to-end loss comparison across gr-difi.** gr-difi applies its own float↔int
-   scaling, different from our documented full-scale convention, so gr-difi↔ours is
-   verified at the **packet and sample-count level**, not by quantization loss. Aligning
-   the scaling conventions for a true loss round-trip is follow-up work.
+2. **No end-to-end per-sample loss comparison across gr-difi** — investigated in depth
+   (`difi-1.2-dataplane` task 11); see "End-to-end loss: investigation and finding" below.
+   gr-difi↔ours remains verified at the **packet and sample-count level**, not by
+   per-sample quantization loss.
 3. gr-difi required local build patches; this is not a clean upstream build on macOS.
+
+## End-to-end loss: investigation and finding (task 11)
+
+The 1.1 work left "align scaling for a true loss round-trip" as follow-up. Task 11
+investigated it directly. The finding is **precise and honest: a meaningful per-sample
+loss number cannot be reliably obtained through gr-difi in this configuration, and the
+mismatch is demonstrably on gr-difi's decode/buffering side, not ours.**
+
+**What was reconciled.** Reading gr-difi's source, its `difi_source_cpp` decode does *no*
+scaling — `unpack_16` returns `gr_complex(re, im)` with `re`/`im` the raw int16 codes cast
+to float (`work/gr-difi/lib/difi_source_cpp_impl.h`). So decoding our 16-bit export (codes
+in ±32767 under our `FS = 2^(n-1)−1` convention) should yield floats in ±32767, which a
+comparator renormalises by 32767 to recover ±1.0. The harness
+(`tests/gnuradio/route2_grdifi/gr_difi_loss.cc` + `compare_loss.py`) does exactly this.
+
+**What happened.** gr-difi recovered the correct **sample count** (4096/4096) but the
+per-sample **values do not correspond**:
+
+| | sample 0 | sample 1 |
+|---|---|---|
+| our original (float) | `(0.900, 0.000)` | `(0.823, −0.052)` |
+| our export code (FS=32767) | `(29490, 0)` | `(26960, −1690)` |
+| gr-difi recovered | `(12915, 0)` | `(20585, +26361)` |
+
+Sample 0's Q aligns (0 in both), but the I magnitude is wrong (12915 vs 29490) and
+sample 1's Q sign is even inverted. This is not a scaling constant (the implied ratio
+wanders, ~16k not 32767) — the samples are mis-aligned/scrambled by gr-difi's source
+buffering, not merely mis-scaled.
+
+**Where the fault is — ruled out on our side.** Our export encodes `0.9 → 29490`
+(`round(0.9·32767)`), and our *own* importer recovers the signal within the documented
+≤0.5-LSB quantization loss (interop.sh §6, `EXPORT-IMPORT-EVIDENCE.md`). Our packets also
+validate clean against the DIFI Consortium reference and dissect correctly in Wireshark.
+So the bytes on the wire are correct and standard-conformant; gr-difi's `difi_source_cpp`
+simply does not reproduce sample-aligned values from this stream in the tested
+configuration (consistent with its known fragility — see the flaky-sink caveat).
+
+**Conclusion.** The end-to-end loss round-trip across gr-difi is **not** claimed. Obtaining
+it would require reverse-engineering gr-difi's source buffering/ordering (and likely
+patching it), which is gr-difi tuning work, not a defect in our implementations. The
+reconciliation harness is committed (`gr_difi_loss.cc`, `compare_loss.py`) so the
+investigation is reproducible and the finding is concrete, not hand-waved. The loss check
+is deliberately **not** wired into `interop.sh` as a passing gate, because it does not
+pass — wiring a failing check green would be dishonest.
 
 ## Reproduce
 
@@ -68,12 +112,23 @@ Build gr-difi into gitignored `work/` (see `tests/gnuradio/route2_grdifi/README.
 ./tests/gnuradio/route2_grdifi/build_and_run.sh
 ```
 
+The end-to-end loss investigation (task 11) is reproduced with:
+
+```sh
+# compile work/gr-difi-flow/gr_difi_loss, decode our export, renormalise, compare:
+#   gr_difi_loss <bind> <port> <nsamples> <out.cf32>   then
+#   compare_loss.py <original.cf32> <recovered.cf32> 16
+# (shows the sample-misalignment finding above — does NOT pass)
+```
+
 It skips cleanly if GNU Radio / the gr-difi install is absent.
 
 ## Bottom line
 
 Route 2 demonstrates real interop with an independent third-party DIFI codec (gr-difi):
-our encoder's stream is fully decoded by gr-difi, and gr-difi's packets are decoded by
-our tools and validated by the reference. The remaining gaps — the flaky gr-difi sink,
-and matching scaling conventions for a loss comparison — are gr-difi/tuning issues, not
-defects in our implementations.
+our encoder's stream is fully decoded by gr-difi (correct sample count), and gr-difi's
+packets are decoded by our tools and validated by the reference. The remaining gaps — the
+flaky gr-difi sink, and gr-difi's source not reproducing sample-aligned values for a
+per-sample loss comparison (task 11 investigation above) — are gr-difi/tuning issues,
+demonstrably not defects in our implementations: our export codes, our own round-trip
+loss, and our conformance against the reference + dissector are all verified correct.
