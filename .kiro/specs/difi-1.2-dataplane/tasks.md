@@ -9,7 +9,7 @@ behaviour, layout, constant value, or passing test may change.
 The authoritative Command-Packet layout is in the gitignored transcription
 (`work/spec-transcription-1.3.0.md`, §4.4.2); keep all confidential text out of the repo.
 
-- [ ] 1. Regression baseline + extended constants
+- [x] 1. Regression baseline + extended constants
   - First, run the full existing 1.1 suite and record it green as the baseline that must
     stay green (Req 4.2): `cd rust && cargo test`; C++ `ctest`; `tests/interop.sh`.
   - Add the 1.2 class codes beside the 1.1 ones in both implementations, keeping
