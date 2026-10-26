@@ -579,6 +579,19 @@ struct DataFormat {
   bool operator==(const DataFormat& o) const { return bit_depth == o.bit_depth; }
 };
 
+// A Signal Data class: 1.1 standard-flow (0x0000) or the DIFI 1.2 Sample Count (0x0002)
+// twin — identical wire layout, distinguished by class code + TSF mode.
+inline bool is_signal_data_class(uint16_t c) {
+  return c == constants::packet_class::SIGNAL_DATA ||
+         c == constants::packet_class::SAMPLE_COUNT_SIGNAL_DATA;
+}
+// A Signal Context class: 1.1 standard-flow (0x0001) or the DIFI 1.2 Sample Count
+// (0x0003) twin.
+inline bool is_signal_context_class(uint16_t c) {
+  return c == constants::packet_class::SIGNAL_CONTEXT ||
+         c == constants::packet_class::SAMPLE_COUNT_SIGNAL_CONTEXT;
+}
+
 struct SignalDataPacket {
   Header header;
   uint8_t bit_depth;
@@ -612,6 +625,9 @@ struct SignalDataPacket {
       throw DifiError("unsupported VRT packet type " +
                       std::to_string(header.packet_type));
     }
+    // Accept both standard-flow (0x0000) and Sample Count (0x0002) data classes.
+    if (!is_signal_data_class(header.packet_class))
+      throw DifiError("unrecognised packet class code");
     size_t payload_bytes = static_cast<size_t>(declared_words) * 4 - constants::HEADER_BYTES;
     size_t total_bits = (payload_bytes / 4) * 32;
     if (total_bits % (2u * bit_depth) != 0) {
@@ -701,7 +717,8 @@ struct SignalContextPacket {
     validate_size(declared_words, buf.size());
     if (header.packet_type != constants::packet_type::CONTEXT)
       throw DifiError("unsupported VRT packet type " + std::to_string(header.packet_type));
-    if (header.packet_class != constants::packet_class::SIGNAL_CONTEXT)
+    // Accept standard-flow (0x0001) and Sample Count (0x0003) context classes.
+    if (!is_signal_context_class(header.packet_class))
       throw DifiError("unrecognised packet class code");
     size_t need = static_cast<size_t>(constants::context::WORDS) * 4;
     if (buf.size() < need) throw DifiError("truncated signal-context payload");
@@ -936,6 +953,40 @@ class StreamEncoder {
     return pkt.pack();
   }
 
+  // DIFI 1.2 Sample Count Signal Data (0x0002): same layout as encode_data, but class
+  // 0x0002, info class Data Plane plus Flow Control, TSF = sample count. Advances seq.
+  std::vector<uint8_t> encode_data_sample_count(const std::vector<IqSample>& samples,
+                                                uint32_t integer_seconds,
+                                                uint64_t fractional_sample_count) {
+    Header h = header(constants::packet_type::SIGNAL_DATA, constants::tsm::DATA,
+                      constants::information_class::DATA_PLANE_FLOW_CONTROL,
+                      constants::packet_class::SAMPLE_COUNT_SIGNAL_DATA, seq_,
+                      integer_seconds, fractional_sample_count);
+    h.tsf = constants::tsf::SAMPLE_COUNT;
+    SignalDataPacket pkt{h, bit_depth_, samples};
+    auto bytes = pkt.pack();
+    seq_ = (seq_ + 1) & 0xF;
+    return bytes;
+  }
+
+  // DIFI 1.2 Sample Count Signal Context (0x0003): same layout as encode_context, but
+  // class 0x0003, info class Data Plane plus Flow Control, TSF = sample count.
+  std::vector<uint8_t> encode_context_sample_count(double rf_reference_hz,
+                                                   double bandwidth_hz,
+                                                   double sample_rate_hz, double gain_db,
+                                                   uint32_t integer_seconds,
+                                                   uint64_t fractional_sample_count) const {
+    Header h = header(constants::packet_type::CONTEXT, constants::tsm::CONTEXT,
+                      constants::information_class::DATA_PLANE_FLOW_CONTROL,
+                      constants::packet_class::SAMPLE_COUNT_SIGNAL_CONTEXT, 0,
+                      integer_seconds, fractional_sample_count);
+    h.tsf = constants::tsf::SAMPLE_COUNT;
+    SignalContextPacket pkt{h,    true,          rf_reference_hz, 0.0,
+                            bandwidth_hz, sample_rate_hz, gain_db,
+                            DataFormat{bit_depth_}};
+    return pkt.pack();
+  }
+
   std::vector<uint8_t> encode_version(uint16_t year, uint16_t day,
                                       uint32_t integer_seconds,
                                       uint64_t fractional_ps) const {
@@ -1013,7 +1064,7 @@ class Decoder {
 
     DifiPacket result{};
     if (packet_type == constants::packet_type::CONTEXT &&
-        packet_class == constants::packet_class::SIGNAL_CONTEXT) {
+        is_signal_context_class(packet_class)) {
       auto ctx = SignalContextPacket::unpack(buf);
       bit_depth_by_stream_[ctx.header.stream_id] = ctx.data_format.bit_depth;
       result.kind = PacketKind::SignalContext;

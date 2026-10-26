@@ -415,6 +415,71 @@ static void test_command_core() {
   CHECK(throws([] { check_action_mode(0b100); }));
 }
 
+// DIFI 1.2 Sample Count Data/Context twins — spec difi-1.2-dataplane task 4. Mirrors
+// rust/tests/sample_count.rs.
+static void test_sample_count() {
+  // Sample Count Signal Data (0x0002) round-trip with sample-count TSF.
+  {
+    StreamEncoder enc(0x00000042, 16);
+    std::vector<IqSample> samples{{100, -200}, {7, 9}};
+    auto bytes = enc.encode_data_sample_count(samples, 1700000000u, 4096);
+    Decoder dec;
+    dec.set_bit_depth(0x00000042, 16);
+    DifiPacket p = dec.decode(bytes);
+    CHECK(p.kind == PacketKind::SignalData);
+    const auto& d = *p.data;
+    CHECK(d.header.packet_class == constants::packet_class::SAMPLE_COUNT_SIGNAL_DATA);
+    CHECK(d.header.information_class == constants::information_class::DATA_PLANE_FLOW_CONTROL);
+    CHECK(d.header.tsf == constants::tsf::SAMPLE_COUNT);
+    CHECK(d.header.fractional_seconds == 4096u);
+    CHECK(d.samples == samples);
+  }
+  // Sample Count Signal Context (0x0003) round-trip; seeds the decoder's bit depth.
+  {
+    StreamEncoder enc(0x00000043, 12);
+    auto bytes = enc.encode_context_sample_count(2.4e9, 20e6, 30.72e6, -3.0, 1700000000u, 0);
+    Decoder dec;
+    DifiPacket p = dec.decode(bytes);
+    CHECK(p.kind == PacketKind::SignalContext);
+    const auto& c = *p.context;
+    CHECK(c.header.packet_class == constants::packet_class::SAMPLE_COUNT_SIGNAL_CONTEXT);
+    CHECK(c.header.tsf == constants::tsf::SAMPLE_COUNT);
+    CHECK(c.data_format.bit_depth == 12);
+  }
+  // Sample-count context is byte-identical to the standard context except word 0 (TSF)
+  // and word 3 (class codes).
+  {
+    StreamEncoder enc(0x00000044, 8);
+    auto std_ctx = enc.encode_context(1e9, 1e6, 2e6, 0.0, 1700000000u, 0);
+    auto sc_ctx = enc.encode_context_sample_count(1e9, 1e6, 2e6, 0.0, 1700000000u, 0);
+    CHECK(std_ctx.size() == sc_ctx.size());
+    for (size_t off = 0; off < std_ctx.size(); ++off) {
+      if (std_ctx[off] != sc_ctx[off]) {
+        bool allowed = off < 4 || (off >= 12 && off < 16);
+        CHECK(allowed);
+      }
+    }
+  }
+  // Regression: a 1.1 standard-flow context still decodes unchanged.
+  {
+    StreamEncoder enc(0x00000045, 16);
+    auto bytes = enc.encode_context(1e9, 1e6, 2e6, 0.0, 1700000000u, 0);
+    Decoder dec;
+    DifiPacket p = dec.decode(bytes);
+    CHECK(p.kind == PacketKind::SignalContext);
+    CHECK(p.context->header.packet_class == constants::packet_class::SIGNAL_CONTEXT);
+    CHECK(p.context->header.tsf == constants::tsf::REAL_TIME_PS);
+  }
+  // A type-0x4 context with an unknown class is rejected.
+  {
+    StreamEncoder enc(1, 16);
+    auto bytes = enc.encode_context(1e9, 1e6, 2e6, 0.0, 1, 0);
+    bytes[14] = 0x00;
+    bytes[15] = 0x77;
+    CHECK(throws([&] { SignalContextPacket::unpack(bytes); }));
+  }
+}
+
 // DIFI 1.2 Timing Flow Control — spec difi-1.2-dataplane task 3. Mirrors
 // rust/src/flowcontrol.rs tests; the two implementations MUST agree byte-for-byte.
 static TimingFlowControlPacket make_fc(FlowControlKind kind) {
@@ -534,6 +599,7 @@ int main() {
   test_constants_1_2();
   test_command_core();
   test_flow_control();
+  test_sample_count();
   test_iq_round_trip();
   test_iq_rejections();
   test_signal_data_round_trip();

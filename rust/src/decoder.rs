@@ -69,8 +69,11 @@ impl Decoder {
     pub fn decode(&mut self, buf: &[u8]) -> Result<DifiPacket> {
         let (packet_type, packet_class, stream_id) = classify(buf)?;
         match packet_type {
-            // Signal Context: VRT type 0x4 with the signal-context class.
-            t if t == packet_type::CONTEXT && packet_class == packet_class::SIGNAL_CONTEXT => {
+            // Signal Context: VRT type 0x4 with a signal-context class — the 1.1
+            // standard-flow (0x0001) or the DIFI 1.2 Sample Count (0x0003) twin.
+            t if t == packet_type::CONTEXT
+                && crate::packet::is_signal_context_class(packet_class) =>
+            {
                 let ctx = SignalContextPacket::unpack(buf)?;
                 self.bit_depth_by_stream
                     .insert(ctx.header.stream_id, ctx.data_format.bit_depth);

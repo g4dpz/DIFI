@@ -105,6 +105,18 @@ impl Header {
     }
 }
 
+/// Is this a Signal Data packet class — the 1.1 standard-flow (`0x0000`) or the DIFI 1.2
+/// Sample Count (`0x0002`) twin? The two share an identical wire layout.
+pub fn is_signal_data_class(class: u16) -> bool {
+    class == packet_class::SIGNAL_DATA || class == packet_class::SAMPLE_COUNT_SIGNAL_DATA
+}
+
+/// Is this a Signal Context packet class — the 1.1 standard-flow (`0x0001`) or the DIFI
+/// 1.2 Sample Count (`0x0003`) twin? The two share an identical wire layout.
+pub fn is_signal_context_class(class: u16) -> bool {
+    class == packet_class::SIGNAL_CONTEXT || class == packet_class::SAMPLE_COUNT_SIGNAL_CONTEXT
+}
+
 /// A DIFI 1.1 Signal Data packet (header + I/Q payload).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignalDataPacket {
@@ -145,6 +157,12 @@ impl SignalDataPacket {
         if header.packet_type != packet_type::SIGNAL_DATA {
             return Err(DifiError::BadPacketType {
                 actual: header.packet_type,
+            });
+        }
+        // Accept both standard-flow (0x0000) and Sample Count (0x0002) data classes.
+        if !is_signal_data_class(header.packet_class) {
+            return Err(DifiError::BadPacketClass {
+                actual: header.packet_class,
             });
         }
         let payload = &buf[HEADER_BYTES..declared_words as usize * 4];
@@ -261,7 +279,10 @@ impl SignalContextPacket {
                 actual: header.packet_type,
             });
         }
-        if header.packet_class != packet_class::SIGNAL_CONTEXT {
+        // Accept both the standard-flow Signal Context (0x0001) and the DIFI 1.2
+        // Sample Count Signal Context (0x0003): identical wire layout, distinguished only
+        // by class code + TSF mode. Any other class is rejected (fail-closed).
+        if !is_signal_context_class(header.packet_class) {
             return Err(DifiError::BadPacketClass {
                 actual: header.packet_class,
             });
