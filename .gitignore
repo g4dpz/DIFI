@@ -1,0 +1,30 @@
+# --- Artifact policy (see .kiro/steering/artifact-policy.md) ---
+# Large raw I/Q must NOT enter Git history. Regenerate from generators + manifests,
+# or fetch large canonical datasets externally by checksum. Committing one of these
+# requires a deliberate `git add -f` and should be rare and justified.
+*.iq
+*.iq32
+*.lsisiq
+*.difi
+*.cf32
+*.cs16
+*.cs8
+*.sigmf-data
+# Keep small golden packets explicitly (a few KB) — allowlist them if needed, e.g.:
+# !tests/golden/*.difi.bin
+
+# Build / environment
+build/
+build-*/
+dist/
+*.egg-info/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
