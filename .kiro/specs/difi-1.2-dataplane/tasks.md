@@ -119,7 +119,7 @@ The authoritative Command-Packet layout is in the gitignored transcription
   - _Requirements: 5.1, 5.3_
   - _Files: `rust/src/bin/`, `cpp/src` tool, `tests/interop.sh`, `docs/interop/`._
 
-- [ ] 8. Conformance vs external tooling (where 1.2.1 is supported)
+- [x] 8. Conformance vs external tooling (where 1.2.1 is supported)
   - Extend `tests/conformance/` to validate the new packets against the DIFI reference
     definitions / Wireshark dissector where 1.2.1 is covered, run headless as in the 1.1
     harness. Where a packet is not yet supported externally, record the gap honestly and
