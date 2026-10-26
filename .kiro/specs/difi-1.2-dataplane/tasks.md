@@ -59,7 +59,7 @@ The authoritative Command-Packet layout is in the gitignored transcription
   - _Files: `rust/src/flowcontrol.rs`, `rust/src/decoder.rs`, `cpp/include/difi/difi.hpp`
     (`difi::flowcontrol`, decoder)._
 
-- [ ] 4. Sample-count Data/Context twins (`0x0002`/`0x0003`) + Information-Class routing
+- [x] 4. Sample-count Data/Context twins (`0x0002`/`0x0003`) + Information-Class routing
   - Implement Sample Count Signal Data (`0x0002`) and Sample Count Signal Context
     (`0x0003`) as thin variants of the existing Signal Data / Signal Context codecs: same
     field layout, class code set to `0x0002`/`0x0003`, TSF set to sample-count mode. Add
