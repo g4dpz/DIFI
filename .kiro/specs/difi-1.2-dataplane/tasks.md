@@ -26,7 +26,7 @@ The authoritative Command-Packet layout is in the gitignored transcription
   - _Requirements: 3.5, 4.1, 4.2_
   - _Files: `rust/src/constants.rs`, `cpp/include/difi/difi.hpp` (`constants`)._
 
-- [ ] 2. Shared Command-Packet core (CAM / CIF0 / CIF1 / IDs)
+- [x] 2. Shared Command-Packet core (CAM / CIF0 / CIF1 / IDs)
   - Implement the shared `command` module/namespace: CAM field read/write (Controllee &
     Controller ID present bits, action/acknowledge mode), CIF0/CIF1 field-presence helpers,
     and the common context words (Message ID, Controllee ID, Controller ID, Reference
