@@ -50,3 +50,6 @@ work/
 .DS_Store
 *.swp
 .idea/
+
+# Internal correspondence drafts — not for the public repo
+docs/email-to-*-DRAFT.md
