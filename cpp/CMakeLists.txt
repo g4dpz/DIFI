@@ -1,0 +1,36 @@
+cmake_minimum_required(VERSION 3.16)
+project(difi_cpp LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+
+add_compile_options(-Wall -Wextra -Wpedantic)
+
+# Header-only DIFI library.
+add_library(difi INTERFACE)
+target_include_directories(difi INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+# CLI tool (interop with the Rust implementation).
+add_executable(difi-tool src/difi_tool.cpp)
+target_link_libraries(difi-tool PRIVATE difi)
+
+# Unit tests.
+enable_testing()
+add_executable(difi_tests tests/test_codec.cpp)
+target_link_libraries(difi_tests PRIVATE difi)
+add_test(NAME codec COMMAND difi_tests)
+
+# Golden-packet conformance: regenerate and diff against the committed shared oracle.
+add_test(
+  NAME golden_match
+  COMMAND ${CMAKE_COMMAND}
+          -DDIFI_TOOL=$<TARGET_FILE:difi-tool>
+          -DGOLDEN_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../tests/golden
+          -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/golden-out
+          -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckGolden.cmake
+)

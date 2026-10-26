@@ -10,8 +10,13 @@
 *.cs16
 *.cs8
 *.sigmf-data
-# Keep small golden packets explicitly (a few KB) — allowlist them if needed, e.g.:
-# !tests/golden/*.difi.bin
+# Keep small golden packets explicitly (a few KB) — allowlisted below.
+# Golden DIFI packets are the shared conformance oracle for every implementation;
+# they are small (KB) and MUST be committed, so override the *.difi rule for them.
+!tests/golden/
+!tests/golden/**
+!**/tests/golden/
+!**/tests/golden/**
 
 # Build / environment
 build/
@@ -23,6 +28,19 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+
+# Rust
+target/
+Cargo.lock
+
+# C++ / CMake
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+
+# Conformance oracle: fetched DIFI Consortium reference definitions (third-party code,
+# fetched on demand by tests/conformance/setup.sh, never redistributed here).
+tests/conformance/.difi-cert/
 
 # OS / editor
 .DS_Store

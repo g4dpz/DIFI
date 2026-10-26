@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# Cross-implementation interop check.
+#
+# Proves the two independent implementations agree on the DIFI 1.1 wire format:
+#   1. Each tool regenerates the golden packets; all six outputs must be byte-identical
+#      to the committed shared oracle in tests/golden/.
+#   2. Each tool decodes the OTHER tool's packets and must report identical fields.
+#
+# Requires both binaries to be built first:
+#   cd rust && cargo build --bin difi-tool
+#   cd cpp  && cmake -S . -B build && cmake --build build
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+RUST_TOOL="$ROOT/rust/target/debug/difi-tool"
+CPP_TOOL="$ROOT/cpp/build/difi-tool"
+GOLDEN="$ROOT/tests/golden"
+
+[ -x "$RUST_TOOL" ] || { echo "missing $RUST_TOOL (run: cd rust && cargo build --bin difi-tool)"; exit 1; }
+[ -x "$CPP_TOOL" ]  || { echo "missing $CPP_TOOL (run: cd cpp && cmake -S . -B build && cmake --build build)"; exit 1; }
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+FILES=(signal_context_16bit.difi.bin version_context.difi.bin signal_data_16bit.difi.bin)
+
+echo "== 1. byte-identical generation =="
+"$RUST_TOOL" gen-golden "$TMP/rust" >/dev/null
+"$CPP_TOOL"  gen-golden "$TMP/cpp"  >/dev/null
+for f in "${FILES[@]}"; do
+  cmp "$TMP/rust/$f" "$GOLDEN/$f" || { echo "FAIL: rust $f != committed oracle"; exit 1; }
+  cmp "$TMP/cpp/$f"  "$GOLDEN/$f" || { echo "FAIL: cpp  $f != committed oracle"; exit 1; }
+  echo "  ok  $f  (rust == cpp == oracle)"
+done
+
+echo "== 2. cross-decode: each tool reads the other's bytes =="
+for f in "${FILES[@]}"; do
+  # Rust decodes the C++-produced bytes; C++ decodes the Rust-produced bytes.
+  r_reads_c="$("$RUST_TOOL" dump "$TMP/cpp/$f")"
+  c_reads_r="$("$CPP_TOOL"  dump "$TMP/rust/$f")"
+  if [ "$r_reads_c" != "$c_reads_r" ]; then
+    echo "FAIL: cross-decode field mismatch on $f"
+    diff <(echo "$r_reads_c") <(echo "$c_reads_r") || true
+    exit 1
+  fi
+  echo "  ok  $f  (rust-reads-cpp == cpp-reads-rust)"
+done
+
+echo "== 3. live UDP interop (all four directions) =="
+COUNT=8
+PORT_BASE=54991
+
+# run_case <label> <recv_cmd...> -- <send_cmd...>
+run_case() {
+  local label="$1"; shift
+  local port="$1"; shift
+  local recv_tool="$1"; shift
+  local send_tool="$1"; shift
+
+  local out
+  out="$("$recv_tool" recv "127.0.0.1:$port" "$COUNT" & recv_pid=$!
+         sleep 0.3
+         "$send_tool" send "127.0.0.1:$port" "$COUNT" >/dev/null
+         wait $recv_pid)"
+  if [ "$out" = "RECV OK $COUNT" ]; then
+    echo "  ok  $label  ($out)"
+  else
+    echo "FAIL: $label — receiver reported: '$out'"
+    exit 1
+  fi
+}
+
+run_case "rust -> rust" $((PORT_BASE + 0)) "$RUST_TOOL" "$RUST_TOOL"
+run_case "cpp  -> cpp"  $((PORT_BASE + 1)) "$CPP_TOOL"  "$CPP_TOOL"
+run_case "cpp  -> rust" $((PORT_BASE + 2)) "$RUST_TOOL" "$CPP_TOOL"
+run_case "rust -> cpp"  $((PORT_BASE + 3)) "$CPP_TOOL"  "$RUST_TOOL"
+
+echo "== 4. sample-mapper agreement (float -> DIFI integer) =="
+for d in 4 8 12 16; do
+  if diff <("$RUST_TOOL" map-check "$d") <("$CPP_TOOL" map-check "$d") >/dev/null; then
+    echo "  ok  bit_depth=$d  (rust codes == cpp codes, identical loss)"
+  else
+    echo "FAIL: mapper disagreement at bit_depth=$d"
+    diff <("$RUST_TOOL" map-check "$d") <("$CPP_TOOL" map-check "$d") || true
+    exit 1
+  fi
+done
+
+echo "== 5. DIFI Consortium conformance (external oracle) =="
+VENV_PY="${DIFI_VENV_PY:-/tmp/difi-venv/bin/python3}"
+if [ -x "$VENV_PY" ] && "$VENV_PY" -c "import construct" 2>/dev/null; then
+  for tool_label in "rust:$RUST_TOOL" "cpp:$CPP_TOOL"; do
+    label="${tool_label%%:*}"; tool="${tool_label#*:}"
+    gdir="$TMP/conf-$label"
+    "$tool" gen-golden "$gdir" >/dev/null
+    if "$VENV_PY" "$ROOT/tests/conformance/certify.py" "$gdir" >/dev/null 2>&1; then
+      echo "  ok  $label packets pass the DIFI Consortium reference validation"
+    else
+      echo "FAIL: $label packets rejected by DIFI conformance oracle"
+      "$VENV_PY" "$ROOT/tests/conformance/certify.py" "$gdir" || true
+      exit 1
+    fi
+  done
+else
+  echo "  skip (conformance venv not found; run tests/conformance/setup.sh)"
+fi
+
+echo "ALL INTEROP CHECKS PASSED"
