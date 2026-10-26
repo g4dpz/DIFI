@@ -7,6 +7,31 @@ This feature upgrades the existing two-implementation toolkit (Rust library crat
 data plane. It adds the packet families introduced across the 1.2.x revisions and closes
 the known gaps carried over from the 1.1 implementation.
 
+### Why this matters — foundation for DIFI 1.3.0 / ESTRACK
+
+ESA's ESTRACK will use **DIFI 1.3.0**. DIFI 1.3.0 is a *superset* of 1.2: a
+1.3.0-conformant device needs the 1.2 data-plane additions — in particular the Timing
+Flow Control Command packets that the 1.3.0 link-establishment state machine emits in its
+Link Active state — underneath the 1.3.0 control plane. So this feature is **not an
+optional sibling; it is the prerequisite data-plane foundation** on the path to the
+ESTRACK target:
+
+```
+  DIFI 1.1 (shipped)   →   DIFI 1.2 data plane   →   DIFI 1.3.0 control plane   =   full DIFI 1.3.0
+  data-plane codec         + Timing Flow Control     + link establishment           (ESTRACK target)
+                           + sample-count classes    (feature difi-link-
+                           + shared Command core        establishment-1.3.0)
+```
+
+Concretely, the shared **Command-Packet core** built here (CAM field, CIF0/CIF1
+indicators, Controllee/Controller IDs, Buffer Size — see Requirement 1/2 and the design's
+`command` module) is the exact foundation the 1.3.0 link-establishment packets
+(`0x0007`/`0x0008`/`0x0009`) extend. Building it once here, correctly and
+interoperably, is what lets the 1.3.0 feature focus on the negotiation state machine
+rather than re-deriving the command packet machinery. The `difi-link-establishment-1.3.0`
+spec therefore **depends on this feature** and rebases onto it rather than building on 1.1
+directly.
+
 Per the DIFI Consortium's published version history, the 1.2 line added a standard
 **flow-control** mechanism (1.2.0, Aug 2023), with clarifications and an additional
 Information Class grouping in 1.2.1 (Feb 2025). Verified against the authoritative

@@ -231,9 +231,14 @@ in the C++ header `cpp/include/difi/difi.hpp`.
 ## Compatibility and alignment
 - **Additive:** no change to 1.1 layouts, API semantics, or passing tests; shared
   infrastructure reused, not forked (Req 4).
-- **Foundation for 1.3.0:** the `command` core (CAM/CIF, IDs, Buffer Size) is the base the
-  1.3.0 link-establishment packets extend; after this lands, the `difi-1.3.0-exploration`
-  branch rebases onto it rather than rebuilding the foundation.
+- **Prerequisite foundation for DIFI 1.3.0 / ESTRACK:** ESTRACK targets DIFI 1.3.0, which
+  is a superset of 1.2. This feature is the data-plane layer that 1.3.0 conformance
+  requires — the Timing Flow Control packets the 1.3.0 link-establishment state machine
+  emits, and the shared `command` core (CAM/CIF, Controllee/Controller IDs, Buffer Size)
+  the 1.3.0 packets (`0x0007`/`0x0008`/`0x0009`) extend. The `difi-link-establishment-1.3.0`
+  feature **depends on this one** and rebases onto it rather than rebuilding the foundation
+  or assuming plain 1.1. Build order toward ESTRACK: 1.1 (shipped) → this 1.2 data plane →
+  1.3.0 control plane = full DIFI 1.3.0.
 - **Confidentiality:** the public repo describes structure and behaviour in our own words;
   the confidential transcription and PDF stay in gitignored `work/`.
 - **Community hub:** the Rust↔C++ 1.2 interop evidence is structured for contribution to
