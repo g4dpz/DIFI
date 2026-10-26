@@ -78,6 +78,8 @@ int dump(const std::string& file) {
   auto buf = read_file(file);
   difi::Decoder dec;
   dec.set_bit_depth(STREAM_ID, 16);
+  uint32_t sid;
+  if (difi::peek_stream_id(buf, sid)) dec.set_bit_depth(sid, 16);
   auto pkt = dec.decode(buf);
   switch (pkt.kind) {
     case difi::PacketKind::SignalContext: {

@@ -40,8 +40,13 @@ plus an **end-to-end reference-signal export/import** proven across both impleme
 
 - **DIFI Consortium conformance** (task 10 / Req 3.2): both implementations' Signal
   Context (27 words), Version Context (11 words) and Signal Data packets parse and
-  validate clean against the Consortium's vendored `construct` definitions. See
+  validate clean against the Consortium's `construct` definitions. See
   `tests/conformance/`.
+- **Cross-decode vs an independent implementation** (task 13 / Req 7.2, 7.3): both
+  directions pass against the DIFI Consortium reference code — packets *built* by the
+  reference decode in our tools, and our packets parse+validate in the reference.
+  Evidence: `docs/interop/CROSS-DECODE-EVIDENCE.md`. (This is the certification
+  reference, not gr-difi; see the caveat there.)
 
 - **Signal generator + manifest writer** (task 11 / Req 6): a deterministic generator
   reproduces a reference signal from committed parameters; `generate` writes the large
@@ -56,11 +61,12 @@ plus an **end-to-end reference-signal export/import** proven across both impleme
   (end-to-end loss equals mapper-only loss — transport/codec add nothing), in all four
   directions including cross-language. Evidence: `docs/interop/EXPORT-IMPORT-EVIDENCE.md`.
 
-Cross-decode against an external DIFI implementation (task 13), the Wireshark dissector
-check (Req 3.1), and property/fuzz hardening (task 14) are the remaining increments. The
-committed reference signal is a reproducible LSIS-AFS-*style* waveform; swapping in a
-real vector's committed parameters would make the evidence use canonical data without
-changing the pipeline (Req 6.4: host the large canonical data externally by SHA-256).
+Property/fuzz hardening (task 14), cross-decode against **gr-difi** or vendor hardware
+(a stronger form of task 13), and the Wireshark dissector check (Req 3.1) are the
+remaining increments. The committed reference signal is a reproducible LSIS-AFS-*style*
+waveform; swapping in a real vector's committed parameters would make the evidence use
+canonical data without changing the pipeline (Req 6.4: host the large canonical data
+externally by SHA-256).
 
 ## Conformance finding (why task 10 mattered)
 

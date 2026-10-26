@@ -8,7 +8,11 @@ the external oracle that establishes wire-level conformance (Req 3.2).
 
 - `certify.py` — **our** harness. It imports the DIFI Consortium's reference packet
   definitions and runs their field-level `validate()` methods against our golden
-  packets, reporting pass/fail per packet.
+  packets, reporting pass/fail per packet (task 10 / Req 3.2).
+- `cross_decode.py` — **our** harness for bidirectional cross-decode against the
+  reference (task 13 / Req 7.2): the reference *builds* packets that our tools decode,
+  and our tools' packets are parsed+validated by the reference. See
+  `docs/interop/CROSS-DECODE-EVIDENCE.md`.
 - `setup.sh` — fetches the Consortium definitions on demand and builds the venv.
 
 ## Third-party code is fetched, not committed

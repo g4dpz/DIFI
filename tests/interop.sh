@@ -167,4 +167,20 @@ else
   echo "  skip (conformance venv not found; run tests/conformance/setup.sh)"
 fi
 
+echo "== 9. cross-decode vs DIFI reference (both directions, Req 7.2) =="
+if [ -x "$VENV_PY" ] && "$VENV_PY" -c "import construct" 2>/dev/null; then
+  for tool_label in "rust:$RUST_TOOL" "cpp:$CPP_TOOL"; do
+    label="${tool_label%%:*}"; tool="${tool_label#*:}"
+    if "$VENV_PY" "$ROOT/tests/conformance/cross_decode.py" "$tool" >/dev/null 2>&1; then
+      echo "  ok  $label <-> reference: reference-builds->decode and build->reference-parses"
+    else
+      echo "FAIL: $label cross-decode"
+      "$VENV_PY" "$ROOT/tests/conformance/cross_decode.py" "$tool" || true
+      exit 1
+    fi
+  done
+else
+  echo "  skip (conformance venv not found; run tests/conformance/setup.sh)"
+fi
+
 echo "ALL INTEROP CHECKS PASSED"

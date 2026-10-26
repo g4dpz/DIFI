@@ -108,8 +108,13 @@ fn write_golden(dir: &str) -> std::io::Result<()> {
 fn dump(file: &str) -> Result<(), String> {
     let buf = fs::read(file).map_err(|e| e.to_string())?;
     let mut dec = Decoder::new();
-    // Golden data uses 16-bit; register it so standalone data packets decode.
+    // A standalone Signal Data packet needs an out-of-band bit depth (normally learned
+    // from a preceding Signal Context). Golden/cross-decode data is 16-bit; register it
+    // for whatever stream this packet carries.
     dec.set_bit_depth(STREAM_ID, 16);
+    if let Some(sid) = difi::peek_stream_id(&buf) {
+        dec.set_bit_depth(sid, 16);
+    }
     match dec.decode(&buf).map_err(|e| e.to_string())? {
         DifiPacket::SignalContext(c) => {
             println!("SignalContext stream=0x{:08X} class=0x{:04X}", c.header.stream_id, packet_class::SIGNAL_CONTEXT);
