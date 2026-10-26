@@ -133,6 +133,15 @@ fn dump(file: &str) -> Result<(), String> {
                 println!("  [{n}] I={} Q={}", s.i, s.q);
             }
         }
+        DifiPacket::TimingFlowControl(f) => {
+            println!("TimingFlowControl stream=0x{:08X} class=0x{:04X} kind={:?}",
+                f.header.stream_id, f.header.packet_class, f.kind);
+            println!("  controllee=0x{:08X} controller=0x{:08X} msg_id={}",
+                f.controllee_id, f.controller_id, f.message_id);
+            println!("  fs={} Hz ts_adj={} fs buffer={} B OF={} NF={} NE={} UF={}",
+                f.sample_rate_hz, f.timestamp_adjust_fs, f.buffer.size_bytes,
+                f.buffer.overflow, f.buffer.near_full, f.buffer.near_empty, f.buffer.underflow);
+        }
     }
     Ok(())
 }
@@ -211,7 +220,7 @@ fn tcp_recv(bind_addr: &str, count: u32) -> Result<(), String> {
                 }
                 data_seen += 1;
             }
-            DifiPacket::VersionContext(_) => {}
+            DifiPacket::VersionContext(_) | DifiPacket::TimingFlowControl(_) => {}
         }
     }
     if ctx_seen == 0 {
@@ -256,7 +265,7 @@ fn recv(bind_addr: &str, count: u32) -> Result<(), String> {
                 }
                 data_seen += 1;
             }
-            DifiPacket::VersionContext(_) => {}
+            DifiPacket::VersionContext(_) | DifiPacket::TimingFlowControl(_) => {}
         }
     }
     if ctx_seen == 0 {
@@ -461,7 +470,7 @@ fn import_impl(bind_addr: &str, interop: bool) -> Result<(), String> {
         match dec.decode(&buf).map_err(|e| e.to_string())? {
             DifiPacket::SignalContext(_) => ctx_seen = true,
             DifiPacket::SignalData(d) => recovered_codes.extend(d.samples),
-            DifiPacket::VersionContext(_) => {}
+            DifiPacket::VersionContext(_) | DifiPacket::TimingFlowControl(_) => {}
         }
     }
     if !ctx_seen && !interop {

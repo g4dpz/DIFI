@@ -772,6 +772,103 @@ struct VersionContextPacket {
 };
 
 // ---------------------------------------------------------------------------
+// DIFI 1.2 Timing Flow Control packet (mirrors rust/src/flowcontrol.rs)
+// Command Packet (VRT type 0x6), 21 words / 84 bytes, built on the command core.
+// ---------------------------------------------------------------------------
+enum class FlowControlKind { SampleCount, RealTime };
+
+inline uint16_t flow_control_packet_class(FlowControlKind k) {
+  return k == FlowControlKind::SampleCount ? constants::packet_class::SAMPLE_COUNT_FLOW_CONTROL
+                                           : constants::packet_class::REAL_TIME_FLOW_CONTROL;
+}
+inline uint8_t flow_control_tsf(FlowControlKind k) {
+  return k == FlowControlKind::SampleCount ? constants::tsf::SAMPLE_COUNT
+                                           : constants::tsf::REAL_TIME_PS;
+}
+
+struct TimingFlowControlPacket {
+  Header header{};
+  FlowControlKind kind = FlowControlKind::RealTime;
+  command::Cam cam{};
+  uint32_t message_id = 0;
+  uint32_t controllee_id = 0;
+  uint32_t controller_id = 0;
+  uint32_t reference_point = constants::command::REF_POINT;
+  double sample_rate_hz = 0.0;
+  int64_t timestamp_adjust_fs = 0;
+  command::BufferState buffer{};
+
+  std::vector<uint8_t> pack() const {
+    Header h = header;
+    h.packet_type = constants::packet_type::COMMAND;
+    h.packet_class = flow_control_packet_class(kind);
+    h.tsf = flow_control_tsf(kind);
+
+    std::vector<uint8_t> out;
+    out.reserve(constants::command::WORDS * 4);
+    h.write_into(constants::command::WORDS, out);
+
+    detail::put_u32(out, cam.to_word());          // word 8
+    detail::put_u32(out, message_id);             // word 9
+    detail::put_u32(out, controllee_id);          // word 10
+    detail::put_u32(out, controller_id);          // word 11
+    // word 12 CIF0: Reference Point + Sample Rate + Timestamp Adjustment + CIF1 present.
+    command::Cif cif0 = command::Cif{}
+                            .with(command::cif0::REFERENCE_POINT, true)
+                            .with(command::cif0::SAMPLE_RATE, true)
+                            .with(command::cif0::TIMESTAMP_ADJ, true)
+                            .with(command::cif0::CIF1_PRESENT, true);
+    detail::put_u32(out, cif0.word());
+    // word 13 CIF1: Buffer Size present.
+    detail::put_u32(out, command::Cif{}.with(command::cif1::BUFFER_SIZE, true).word());
+    detail::put_u32(out, reference_point);  // word 14
+    detail::put_u64(out, static_cast<uint64_t>(
+                             detail::to_fixed_i64(sample_rate_hz, constants::scale::RADIX_20)));
+    detail::put_i64(out, timestamp_adjust_fs);  // words 17-18
+    detail::put_u64(out, buffer.size_bytes);    // words 19-20
+    detail::put_u32(out, buffer.status_word()); // word 21
+    return out;
+  }
+
+  static TimingFlowControlPacket unpack(const std::vector<uint8_t>& buf) {
+    auto [header, declared_words] = Header::parse(buf);
+    validate_size(declared_words, buf.size());
+    if (header.packet_type != constants::packet_type::COMMAND)
+      throw DifiError("unsupported VRT packet type " + std::to_string(header.packet_type));
+    FlowControlKind kind;
+    if (header.packet_class == constants::packet_class::SAMPLE_COUNT_FLOW_CONTROL)
+      kind = FlowControlKind::SampleCount;
+    else if (header.packet_class == constants::packet_class::REAL_TIME_FLOW_CONTROL)
+      kind = FlowControlKind::RealTime;
+    else
+      throw DifiError("unrecognised packet class code");
+    size_t need = static_cast<size_t>(constants::command::WORDS) * 4;
+    if (buf.size() < need) throw DifiError("truncated timing-flow-control payload");
+    TimingFlowControlPacket p{};
+    p.header = header;
+    p.kind = kind;
+    p.cam = command::Cam::from_word(detail::get_u32(buf, 28));
+    p.message_id = detail::get_u32(buf, 32);
+    p.controllee_id = detail::get_u32(buf, 36);
+    p.controller_id = detail::get_u32(buf, 40);
+    p.reference_point = detail::get_u32(buf, 52);
+    p.sample_rate_hz = detail::from_fixed_i64(
+        static_cast<int64_t>(detail::get_u64(buf, 56)), constants::scale::RADIX_20);
+    p.timestamp_adjust_fs = detail::get_i64(buf, 64);
+    p.buffer = command::BufferState::from_status_word(detail::get_u64(buf, 72),
+                                                      detail::get_u32(buf, 80));
+    return p;
+  }
+
+  bool operator==(const TimingFlowControlPacket& o) const {
+    return header == o.header && kind == o.kind && cam == o.cam &&
+           message_id == o.message_id && controllee_id == o.controllee_id &&
+           controller_id == o.controller_id && reference_point == o.reference_point &&
+           timestamp_adjust_fs == o.timestamp_adjust_fs && buffer == o.buffer;
+  }
+};
+
+// ---------------------------------------------------------------------------
 // Encoder (mirrors rust/src/encoder.rs)
 // ---------------------------------------------------------------------------
 class StreamEncoder {
@@ -878,13 +975,14 @@ class StreamEncoder {
 // ---------------------------------------------------------------------------
 // Decoder (mirrors rust/src/decoder.rs)
 // ---------------------------------------------------------------------------
-enum class PacketKind { SignalData, SignalContext, VersionContext };
+enum class PacketKind { SignalData, SignalContext, VersionContext, TimingFlowControl };
 
 struct DifiPacket {
   PacketKind kind;
   std::optional<SignalDataPacket> data;
   std::optional<SignalContextPacket> context;
   std::optional<VersionContextPacket> version;
+  std::optional<TimingFlowControlPacket> flow_control;
 };
 
 class Decoder {
@@ -925,6 +1023,15 @@ class Decoder {
     if (packet_type == constants::version_packet_type::VERSION_CONTEXT) {
       result.kind = PacketKind::VersionContext;
       result.version = VersionContextPacket::unpack(buf);
+      return result;
+    }
+    // Timing Flow Control: VRT type 0x6 (Command). Decoded BEFORE the Signal Data
+    // bit-depth gate below — flow-control packets carry no sample bit depth and must
+    // decode regardless of whether a Signal Context has been seen for the stream
+    // (spec difi-1.2-dataplane task 3 note).
+    if (packet_type == constants::packet_type::COMMAND) {
+      result.kind = PacketKind::TimingFlowControl;
+      result.flow_control = TimingFlowControlPacket::unpack(buf);
       return result;
     }
     if (packet_type == constants::packet_type::SIGNAL_DATA) {

@@ -9,14 +9,17 @@ use std::collections::HashMap;
 
 use crate::constants::*;
 use crate::error::{DifiError, Result};
+use crate::flowcontrol::TimingFlowControlPacket;
 use crate::packet::{SignalContextPacket, SignalDataPacket, VersionContextPacket};
 
-/// A decoded DIFI packet of any of the three DIFI 1.1 kinds.
+/// A decoded DIFI packet: the three DIFI 1.1 kinds plus the DIFI 1.2 Timing Flow Control.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DifiPacket {
     SignalData(SignalDataPacket),
     SignalContext(SignalContextPacket),
     VersionContext(VersionContextPacket),
+    /// DIFI 1.2 Timing Flow Control (Packet Class `0x0005`/`0x0006`).
+    TimingFlowControl(TimingFlowControlPacket),
 }
 
 /// Peek the VRT packet type and (for context packets) packet class from a buffer.
@@ -77,6 +80,13 @@ impl Decoder {
             t if t == version_packet_type::VERSION_CONTEXT => {
                 Ok(DifiPacket::VersionContext(VersionContextPacket::unpack(buf)?))
             }
+            // Timing Flow Control: VRT type 0x6 (Command). Decoded BEFORE the Signal Data
+            // bit-depth gate below — flow-control packets carry no sample bit depth and
+            // must decode regardless of whether a Signal Context has been seen for the
+            // stream (spec difi-1.2-dataplane task 3 note).
+            t if t == packet_type::COMMAND => Ok(DifiPacket::TimingFlowControl(
+                TimingFlowControlPacket::unpack(buf)?,
+            )),
             t if t == packet_type::SIGNAL_DATA => {
                 let bit_depth = self.bit_depth_by_stream.get(&stream_id).copied().ok_or(
                     DifiError::Invalid {

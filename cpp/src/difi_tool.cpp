@@ -106,6 +106,18 @@ int dump(const std::string& file) {
         std::printf("  [%zu] I=%d Q=%d\n", n, d.samples[n].i, d.samples[n].q);
       break;
     }
+    case difi::PacketKind::TimingFlowControl: {
+      const auto& f = *pkt.flow_control;
+      std::printf("TimingFlowControl stream=0x%08X class=0x%04X\n", f.header.stream_id,
+                  f.header.packet_class);
+      std::printf("  controllee=0x%08X controller=0x%08X msg_id=%u\n", f.controllee_id,
+                  f.controller_id, f.message_id);
+      std::printf("  fs=%.0f Hz ts_adj=%lld fs buffer=%llu B OF=%d NF=%d NE=%d UF=%d\n",
+                  f.sample_rate_hz, static_cast<long long>(f.timestamp_adjust_fs),
+                  static_cast<unsigned long long>(f.buffer.size_bytes), f.buffer.overflow,
+                  f.buffer.near_full, f.buffer.near_empty, f.buffer.underflow);
+      break;
+    }
   }
   return 0;
 }

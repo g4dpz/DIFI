@@ -415,6 +415,83 @@ static void test_command_core() {
   CHECK(throws([] { check_action_mode(0b100); }));
 }
 
+// DIFI 1.2 Timing Flow Control — spec difi-1.2-dataplane task 3. Mirrors
+// rust/src/flowcontrol.rs tests; the two implementations MUST agree byte-for-byte.
+static TimingFlowControlPacket make_fc(FlowControlKind kind) {
+  TimingFlowControlPacket p{};
+  p.header = make_header(constants::packet_type::COMMAND,
+                         constants::information_class::DATA_PLANE_FLOW_CONTROL,
+                         flow_control_packet_class(kind), 3);
+  p.header.tsm = constants::tsm::DATA;
+  p.header.tsf = flow_control_tsf(kind);
+  p.header.stream_id = 0xABCD1234;
+  p.kind = kind;
+  p.cam.controllee_id_present = true;
+  p.cam.controller_id_present = true;
+  p.cam.action_mode = command::action_mode::EXECUTE;
+  p.message_id = 7;
+  p.controllee_id = 0x11112222;
+  p.controller_id = 0x33334444;
+  p.reference_point = constants::command::REF_POINT;
+  p.sample_rate_hz = 30720000.0;
+  p.timestamp_adjust_fs = -5000;
+  p.buffer.size_bytes = 1u << 22;
+  p.buffer.near_full = true;
+  p.buffer.level = 0x00ABC000;
+  return p;
+}
+
+static void test_flow_control() {
+  // Sample-count round-trip.
+  TimingFlowControlPacket sc = make_fc(FlowControlKind::SampleCount);
+  auto b = sc.pack();
+  CHECK(b.size() == 84);
+  TimingFlowControlPacket back = TimingFlowControlPacket::unpack(b);
+  CHECK(back.kind == FlowControlKind::SampleCount);
+  CHECK(back.header.packet_class == constants::packet_class::SAMPLE_COUNT_FLOW_CONTROL);
+  CHECK(back.header.tsf == constants::tsf::SAMPLE_COUNT);
+  CHECK(back.message_id == 7);
+  CHECK(back.controllee_id == 0x11112222);
+  CHECK(back.controller_id == 0x33334444);
+  CHECK(std::abs(back.sample_rate_hz - 30720000.0) < 1e-6);
+  CHECK(back.timestamp_adjust_fs == -5000);
+  CHECK(back == sc);
+  // Real-time round-trip.
+  TimingFlowControlPacket rt = make_fc(FlowControlKind::RealTime);
+  TimingFlowControlPacket rtb = TimingFlowControlPacket::unpack(rt.pack());
+  CHECK(rtb.kind == FlowControlKind::RealTime);
+  CHECK(rtb.header.packet_class == constants::packet_class::REAL_TIME_FLOW_CONTROL);
+  CHECK(rtb.header.tsf == constants::tsf::REAL_TIME_PS);
+  // Buffer status flags survive.
+  TimingFlowControlPacket fp = make_fc(FlowControlKind::RealTime);
+  fp.buffer = command::BufferState{};
+  fp.buffer.size_bytes = 9999;
+  fp.buffer.overflow = true;
+  fp.buffer.underflow = true;
+  fp.buffer.near_empty = true;
+  fp.buffer.level = 0x7F000000;
+  TimingFlowControlPacket fpb = TimingFlowControlPacket::unpack(fp.pack());
+  CHECK(fpb.buffer.overflow);
+  CHECK(fpb.buffer.underflow);
+  CHECK(!fpb.buffer.near_full);
+  CHECK(fpb.buffer.near_empty);
+  CHECK(fpb.buffer.level == 0x7F000000);
+  // Fail-closed on wrong class / size.
+  auto bad = sc.pack();
+  bad[14] = 0x00;
+  bad[15] = 0x99;
+  CHECK(throws([&] { TimingFlowControlPacket::unpack(bad); }));
+  std::vector<uint8_t> short_buf(sc.pack().begin(), sc.pack().begin() + 80);
+  CHECK(throws([&] { TimingFlowControlPacket::unpack(short_buf); }));
+  // The Decoder routes a flow-control packet with NO prior Signal Context for its stream
+  // (the bit-depth gate must not block it).
+  Decoder dec;
+  DifiPacket dp = dec.decode(sc.pack());
+  CHECK(dp.kind == PacketKind::TimingFlowControl);
+  CHECK(dp.flow_control.has_value());
+  CHECK(dp.flow_control->message_id == 7);
+}
+
 // DIFI 1.2 constants — spec difi-1.2-dataplane task 1. Mirrors
 // rust/tests/constants_1_2.rs; the two implementations MUST agree.
 static void test_constants_1_2() {
@@ -456,6 +533,7 @@ static void test_constants_1_2() {
 int main() {
   test_constants_1_2();
   test_command_core();
+  test_flow_control();
   test_iq_round_trip();
   test_iq_rejections();
   test_signal_data_round_trip();

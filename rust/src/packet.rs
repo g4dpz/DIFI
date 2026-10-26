@@ -36,7 +36,7 @@ pub struct Header {
 }
 
 impl Header {
-    fn write_into(&self, packet_size_words: u16, out: &mut Vec<u8>) {
+    pub(crate) fn write_into(&self, packet_size_words: u16, out: &mut Vec<u8>) {
         let word0: u32 = ((self.packet_type as u32 & 0xF) << 28)
             | ((self.class_id_present as u32) << 27)
             // bits 25-26 reserved = 0
@@ -55,7 +55,7 @@ impl Header {
     }
 
     /// Parse the fixed 28-byte header, fail-closed. Returns (header, declared_words).
-    fn parse(buf: &[u8]) -> Result<(Header, u16)> {
+    pub(crate) fn parse(buf: &[u8]) -> Result<(Header, u16)> {
         if buf.len() < HEADER_BYTES {
             return Err(DifiError::Truncated {
                 field: "header",
@@ -410,7 +410,7 @@ impl VersionContextPacket {
 
 /// Reject a Packet-Size/length mismatch (Req 1.5): the declared word count MUST equal
 /// the actual buffer length in words, and the buffer must be word-aligned.
-fn validate_size(declared_words: u16, actual_bytes: usize) -> Result<()> {
+pub(crate) fn validate_size(declared_words: u16, actual_bytes: usize) -> Result<()> {
     if actual_bytes % 4 != 0 {
         return Err(DifiError::NotWordAligned {
             field: "packet length",
@@ -427,12 +427,12 @@ fn validate_size(declared_words: u16, actual_bytes: usize) -> Result<()> {
 }
 
 #[inline]
-fn read_u32(buf: &[u8], off: usize) -> u32 {
+pub(crate) fn read_u32(buf: &[u8], off: usize) -> u32 {
     u32::from_be_bytes([buf[off], buf[off + 1], buf[off + 2], buf[off + 3]])
 }
 
 #[inline]
-fn read_u64(buf: &[u8], off: usize) -> u64 {
+pub(crate) fn read_u64(buf: &[u8], off: usize) -> u64 {
     let mut b = [0u8; 8];
     b.copy_from_slice(&buf[off..off + 8]);
     u64::from_be_bytes(b)

@@ -13,6 +13,7 @@ pub mod constants;
 pub mod decoder;
 pub mod encoder;
 pub mod error;
+pub mod flowcontrol;
 pub mod iq;
 pub mod manifest;
 pub mod mapper;
@@ -23,6 +24,7 @@ pub mod transport;
 
 pub use command::{BufferState, Cam, Cif, CommandContext};
 pub use decoder::{Decoder, DifiPacket};
+pub use flowcontrol::{FlowControlKind, TimingFlowControlPacket};
 pub use encoder::StreamEncoder;
 pub use error::{DifiError, Result};
 pub use iq::IqSample;
