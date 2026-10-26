@@ -127,7 +127,7 @@ The authoritative Command-Packet layout is in the gitignored transcription
   - _Requirements: 6.1, 6.2_
   - _Files: `tests/conformance/` (extended)._
 
-- [ ] 9. Close 1.1 gap — scaling vs DIFI reference-gain guidance
+- [x] 9. Close 1.1 gap — scaling vs DIFI reference-gain guidance
   - Reconcile the documented `ScalingConvention` (16-bit, full-scale = 2^(n-1)-1) against
     the DIFI MILCOM "Reference Gain and Scaling" guidance; confirm consistent or adjust;
     record the outcome in the manifest and in this feature's design. If adjusted, keep the
