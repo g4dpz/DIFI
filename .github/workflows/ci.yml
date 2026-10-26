@@ -1,0 +1,120 @@
+# SPDX-License-Identifier: Apache-2.0
+# Continuous integration for the DIFI I/Q interoperability toolkit.
+#
+# Runs the same checks the project verifies by hand per task: Rust (fmt/clippy/test),
+# C++ (build + ctest), the C++ sanitizer build (ASan+UBSan — this is what caught a real
+# use-after-free), the cross-implementation interop script, and — best-effort — the
+# external DIFI Consortium conformance oracle (reference definitions + Wireshark
+# dissector). gr-difi (GNU Radio) is intentionally NOT run in CI: it needs platform
+# build patches and has a flaky sink; interop.sh self-skips it.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust (fmt, clippy, test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Format check
+        run: cargo fmt --check
+      - name: Clippy (deny warnings)
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --all-targets
+
+  cpp:
+    name: C++ (build, ctest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build cpp/build
+      - name: Test
+        run: ctest --test-dir cpp/build --output-on-failure
+
+  cpp-sanitizers:
+    name: C++ sanitizers (ASan + UBSan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (sanitizers)
+        run: cmake -S cpp -B cpp/build-san -DDIFI_SANITIZE=ON -DCMAKE_BUILD_TYPE=Debug
+      - name: Build
+        run: cmake --build cpp/build-san
+      - name: Run tests under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+        run: ctest --test-dir cpp/build-san --output-on-failure
+
+  interop:
+    name: Cross-implementation interop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Build Rust tool
+        run: cargo build --bin difi-tool --manifest-path rust/Cargo.toml
+      - name: Build C++ tool
+        run: cmake -S cpp -B cpp/build && cmake --build cpp/build --target difi-tool
+      - name: Interop (core sections; conformance/Wireshark/gr-difi self-skip)
+        run: ./tests/interop.sh
+
+  conformance:
+    name: DIFI conformance oracle (best-effort)
+    runs-on: ubuntu-latest
+    # Best-effort: fetches third-party reference definitions over the network and needs
+    # tshark. A failure here is informational and does NOT block the PR (the core jobs
+    # above are the gates). Promote to required once it is proven stable on CI.
+    continue-on-error: true
+    env:
+      DIFI_VENV: ${{ github.workspace }}/.difi-venv
+      DIFI_VENV_PY: ${{ github.workspace }}/.difi-venv/bin/python3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Install tshark (Wireshark CLI)
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tshark
+      - name: Fetch DIFI reference definitions + dissector, build venv
+        run: tests/conformance/setup.sh
+      - name: Build both tools (for cross-decode + goldens)
+        run: |
+          cargo build --bin difi-tool --manifest-path rust/Cargo.toml
+          cmake -S cpp -B cpp/build && cmake --build cpp/build --target difi-tool
+      - name: Certify golden packets against the reference definitions
+        run: |
+          "$DIFI_VENV_PY" tests/conformance/certify.py tests/golden
+      - name: Full interop with conformance sections enabled
+        env:
+          DIFI_TSHARK: /usr/bin/tshark
+        run: ./tests/interop.sh
