@@ -1,9 +1,10 @@
-# Golden DIFI 1.1 Packets — Shared Conformance Oracle
+# Golden DIFI Packets — Shared Conformance Oracle
 
-These three packets are the **shared wire-format oracle** for every independent
-implementation in this toolkit (Rust, C++). They are small (≤108 bytes each) and are
-committed deliberately (the artifact policy allowlists `tests/golden/`). Any
-implementation claiming DIFI 1.1 conformance here MUST:
+These packets are the **shared wire-format oracle** for every independent implementation
+in this toolkit (Rust, C++). They are small (≤108 bytes each) and are committed
+deliberately (the artifact policy allowlists `tests/golden/`). The first three are the
+DIFI **1.1** data-plane packets; the last four are the DIFI **1.2** additions
+(sample-count twins and Timing Flow Control). Any implementation claiming conformance MUST:
 
 1. **Decode** each packet and recover the field values documented below.
 2. **Encode** the same inputs and produce byte-identical output (matching the SHA-256).
@@ -79,6 +80,54 @@ SHA-256: `a6d30bb5f17a69e9c5bb3f244520d222dd34691a51f97f4ea418d1d1cc5fb871`
 | Sample count | `8` |
 
 Samples (I, Q): (-4,100) (-3,75) (-2,50) (-1,25) (0,0) (1,-25) (2,-50) (3,-75).
+
+## DIFI 1.2 packets
+
+The four packets below are the DIFI 1.2 additions. They share the common header values
+above (Stream ID `0x12345678`, integer-seconds `1700000000`) and the context fixed-point
+scaling. The sample-count packets carry a **sample count** in the fractional-timestamp
+field (TSF = sample count, `0b01`), not picoseconds.
+
+### `sample_count_context_16bit.difi.bin` (108 bytes, 27 words)
+
+SHA-256: `84a57963fe820846a47cedc8a33c89567aedbebf75b02418ea905b2883cc57fa`
+
+Byte-identical to `signal_context_16bit.difi.bin` **except** word 0 (TSF nibble = sample
+count) and word 3 (Information Class `0x0002` "Data Plane plus Flow Control", Packet Class
+`0x0003`). Same RF/bandwidth/sample-rate/gain/bit-depth values. Fractional field = `0`.
+
+### `sample_count_data_16bit.difi.bin` (60 bytes)
+
+SHA-256: `7cef986b9b198480c36532d35e17713a1c760e053a7ea55ac1d8eeacbb1a5d32`
+
+Same eight samples as `signal_data_16bit.difi.bin`; Information Class `0x0002`, Packet
+Class `0x0002`, TSF = sample count, fractional field = sample count `4096`.
+
+### `timing_flow_control_sc.difi.bin` (84 bytes, 21 words) — Packet Class `0x0005`
+### `timing_flow_control_rt.difi.bin` (84 bytes, 21 words) — Packet Class `0x0006`
+
+SHA-256 (sc): `101e1277249f85c2ba3787162ae2fe46c022a290240541f24118eb2aaf4fec5b`
+SHA-256 (rt): `adf7f8c7ccf38004b026cce276a6f66e89a1d453c73b1b84cfb4c764caca7d4d`
+
+VITA 49.2 Command Packets (VRT type `0x6`), Information Class `0x0002`. The two differ
+only in Packet Class and the TSF interpretation (`0x0005` sample-count vs `0x0006`
+real-time ps). Field values:
+
+| Field | Value |
+|-------|-------|
+| CAM | Controllee + Controller ID present, Action Mode = execute (`0b10`) |
+| Message ID | `1` |
+| Controllee ID / Controller ID | `0x000000A1` / `0x000000B2` |
+| Reference Point | `0x64` |
+| Sample Rate | `1.25e6` Hz (stored `round(value · 2²⁰)`) |
+| Timestamp Adjustment | `2500` fs |
+| Buffer Size | `1048576` bytes (`1 << 20`) |
+| Buffer Status | Near-Full set; buffer level `0x00300000` |
+
+CIF0 declares Reference Point + Sample Rate + Timestamp Adjustment + CIF1 present; CIF1
+declares Buffer Size present. Word order: CAM(8), Message/Controllee/Controller IDs
+(9-11), CIF0(12), CIF1(13), Reference Point(14), Sample Rate(15-16), Timestamp
+Adjustment(17-18), Buffer Size(19-20), Buffer Status(21).
 
 ## Regenerating
 

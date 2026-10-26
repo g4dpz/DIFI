@@ -16,6 +16,10 @@ set(files
   signal_context_16bit.difi.bin
   version_context.difi.bin
   signal_data_16bit.difi.bin
+  sample_count_context_16bit.difi.bin
+  sample_count_data_16bit.difi.bin
+  timing_flow_control_sc.difi.bin
+  timing_flow_control_rt.difi.bin
 )
 
 foreach(f ${files})

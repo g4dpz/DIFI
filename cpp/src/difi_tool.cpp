@@ -25,6 +25,40 @@ constexpr uint8_t EXPORT_BIT_DEPTH = 16;
 constexpr double EXPORT_FULL_SCALE = 1.0;
 constexpr size_t EXPORT_SAMPLES_PER_PACKET = 256;
 
+// Deterministic Timing Flow Control golden (mirrors the Rust golden_flow_control so the
+// two tools produce byte-identical output).
+difi::TimingFlowControlPacket golden_flow_control(difi::FlowControlKind kind) {
+  namespace c = difi::constants;
+  difi::TimingFlowControlPacket p{};
+  p.header.packet_type = c::packet_type::COMMAND;
+  p.header.class_id_present = true;
+  p.header.tsm = c::tsm::DATA;
+  p.header.tsi = c::tsi::UTC;
+  p.header.tsf = (kind == difi::FlowControlKind::SampleCount) ? c::tsf::SAMPLE_COUNT
+                                                              : c::tsf::REAL_TIME_PS;
+  p.header.seq_num = 0;
+  p.header.stream_id = STREAM_ID;
+  p.header.information_class = c::information_class::DATA_PLANE_FLOW_CONTROL;
+  p.header.packet_class = difi::flow_control_packet_class(kind);
+  p.header.integer_seconds = INT_SECONDS;
+  p.header.fractional_seconds =
+      (kind == difi::FlowControlKind::SampleCount) ? 4096ull : FRAC_PS;
+  p.kind = kind;
+  p.cam.controllee_id_present = true;
+  p.cam.controller_id_present = true;
+  p.cam.action_mode = difi::command::action_mode::EXECUTE;
+  p.message_id = 1;
+  p.controllee_id = 0x000000A1;
+  p.controller_id = 0x000000B2;
+  p.reference_point = c::command::REF_POINT;
+  p.sample_rate_hz = 1.25e6;
+  p.timestamp_adjust_fs = 2500;
+  p.buffer.size_bytes = 1u << 20;
+  p.buffer.near_full = true;
+  p.buffer.level = 0x00300000;
+  return p;
+}
+
 std::vector<difi::IqSample> golden_samples() {
   std::vector<difi::IqSample> v;
   for (int n = 0; n < 8; ++n) v.push_back({n - 4, 100 - n * 25});
@@ -65,13 +99,23 @@ int gen_golden(const std::string& dir) {
   auto ver = enc.encode_version(2021, 100, INT_SECONDS, FRAC_PS);
   auto data = enc.encode_data(golden_samples(), INT_SECONDS, FRAC_PS);
 
+  // DIFI 1.2 goldens.
+  auto sc_ctx = enc.encode_context_sample_count(2.401e9, 1.0e6, 1.25e6, -3.5, INT_SECONDS, 0);
+  auto sc_data = enc.encode_data_sample_count(golden_samples(), INT_SECONDS, 4096);
+  auto tfc_sc = golden_flow_control(difi::FlowControlKind::SampleCount).pack();
+  auto tfc_rt = golden_flow_control(difi::FlowControlKind::RealTime).pack();
+
   if (!write_file(dir + "/signal_context_16bit.difi.bin", ctx) ||
       !write_file(dir + "/version_context.difi.bin", ver) ||
-      !write_file(dir + "/signal_data_16bit.difi.bin", data)) {
+      !write_file(dir + "/signal_data_16bit.difi.bin", data) ||
+      !write_file(dir + "/sample_count_context_16bit.difi.bin", sc_ctx) ||
+      !write_file(dir + "/sample_count_data_16bit.difi.bin", sc_data) ||
+      !write_file(dir + "/timing_flow_control_sc.difi.bin", tfc_sc) ||
+      !write_file(dir + "/timing_flow_control_rt.difi.bin", tfc_rt)) {
     std::fprintf(stderr, "error: failed to write golden packets to %s\n", dir.c_str());
     return 1;
   }
-  std::printf("wrote 3 golden packets to %s\n", dir.c_str());
+  std::printf("wrote 7 golden packets to %s\n", dir.c_str());
   return 0;
 }
 
@@ -108,14 +152,18 @@ int dump(const std::string& file) {
     }
     case difi::PacketKind::TimingFlowControl: {
       const auto& f = *pkt.flow_control;
-      std::printf("TimingFlowControl stream=0x%08X class=0x%04X\n", f.header.stream_id,
-                  f.header.packet_class);
+      const char* kind =
+          f.kind == difi::FlowControlKind::SampleCount ? "SampleCount" : "RealTime";
+      auto b = [](bool v) { return v ? "true" : "false"; };
+      std::printf("TimingFlowControl stream=0x%08X class=0x%04X kind=%s\n",
+                  f.header.stream_id, f.header.packet_class, kind);
       std::printf("  controllee=0x%08X controller=0x%08X msg_id=%u\n", f.controllee_id,
                   f.controller_id, f.message_id);
-      std::printf("  fs=%.0f Hz ts_adj=%lld fs buffer=%llu B OF=%d NF=%d NE=%d UF=%d\n",
+      std::printf("  fs=%.0f Hz ts_adj=%lld fs buffer=%llu B OF=%s NF=%s NE=%s UF=%s\n",
                   f.sample_rate_hz, static_cast<long long>(f.timestamp_adjust_fs),
-                  static_cast<unsigned long long>(f.buffer.size_bytes), f.buffer.overflow,
-                  f.buffer.near_full, f.buffer.near_empty, f.buffer.underflow);
+                  static_cast<unsigned long long>(f.buffer.size_bytes),
+                  b(f.buffer.overflow), b(f.buffer.near_full), b(f.buffer.near_empty),
+                  b(f.buffer.underflow));
       break;
     }
   }

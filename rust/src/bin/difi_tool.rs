@@ -13,10 +13,12 @@ use std::fs;
 use std::process::ExitCode;
 use std::time::Duration;
 
-use difi::constants::packet_class;
+use difi::constants::{command, information_class, packet_class, packet_type, tsf, tsi, tsm};
+use difi::command::{action_mode, BufferState, Cam};
 use difi::{
-    generate_signal, measure_implementation_loss, Decoder, DifiPacket, IqSample,
-    ScalingConvention, SignalParams, StreamEncoder, UdpReceiver, UdpSender,
+    generate_signal, measure_implementation_loss, Decoder, DifiPacket, FlowControlKind, Header,
+    IqSample, ScalingConvention, SignalParams, StreamEncoder, TimingFlowControlPacket,
+    UdpReceiver, UdpSender,
 };
 
 const STREAM_ID: u32 = 0x1234_5678;
@@ -102,8 +104,80 @@ fn write_golden(dir: &str) -> std::io::Result<()> {
         .expect("data");
     fs::write(format!("{dir}/signal_data_16bit.difi.bin"), &data)?;
 
-    println!("wrote 3 golden packets to {dir}");
+    // --- DIFI 1.2 goldens ---
+    // Sample Count Signal Context (0x0003): same fields as the 1.1 context golden,
+    // sample-count TSF. Fractional field is a sample count (0 here, deterministic).
+    let sc_ctx = enc
+        .encode_context_sample_count(2.401e9, 1.0e6, 1.25e6, -3.5, INT_SECONDS, 0)
+        .expect("sample-count context");
+    fs::write(format!("{dir}/sample_count_context_16bit.difi.bin"), &sc_ctx)?;
+
+    // Sample Count Signal Data (0x0002): same samples as the 1.1 data golden,
+    // fractional field = sample count 4096.
+    let sc_data = enc
+        .encode_data_sample_count(&golden_samples(), INT_SECONDS, 4096)
+        .expect("sample-count data");
+    fs::write(format!("{dir}/sample_count_data_16bit.difi.bin"), &sc_data)?;
+
+    // Timing Flow Control (0x0005 sample-count, 0x0006 real-time).
+    fs::write(
+        format!("{dir}/timing_flow_control_sc.difi.bin"),
+        golden_flow_control(FlowControlKind::SampleCount).pack().expect("tfc sc"),
+    )?;
+    fs::write(
+        format!("{dir}/timing_flow_control_rt.difi.bin"),
+        golden_flow_control(FlowControlKind::RealTime).pack().expect("tfc rt"),
+    )?;
+
+    println!("wrote 7 golden packets to {dir}");
     Ok(())
+}
+
+/// Deterministic Timing Flow Control golden packet (shared by both tools). The fields are
+/// fixed so Rust and C++ produce byte-identical output.
+fn golden_flow_control(kind: FlowControlKind) -> TimingFlowControlPacket {
+    let frac = match kind {
+        FlowControlKind::SampleCount => 4096,
+        FlowControlKind::RealTime => FRAC_PS,
+    };
+    let header = Header {
+        packet_type: packet_type::COMMAND,
+        class_id_present: true,
+        tsm: tsm::DATA,
+        tsi: tsi::UTC,
+        tsf: match kind {
+            FlowControlKind::SampleCount => tsf::SAMPLE_COUNT,
+            FlowControlKind::RealTime => tsf::REAL_TIME_PS,
+        },
+        seq_num: 0,
+        stream_id: STREAM_ID,
+        information_class: information_class::DATA_PLANE_FLOW_CONTROL,
+        packet_class: kind.packet_class(),
+        integer_seconds: INT_SECONDS,
+        fractional_seconds: frac,
+    };
+    TimingFlowControlPacket {
+        header,
+        kind,
+        cam: Cam {
+            controllee_id_present: true,
+            controller_id_present: true,
+            action_mode: action_mode::EXECUTE,
+            ..Cam::default()
+        },
+        message_id: 1,
+        controllee_id: 0x0000_00A1,
+        controller_id: 0x0000_00B2,
+        reference_point: command::REF_POINT,
+        sample_rate_hz: 1.25e6,
+        timestamp_adjust_fs: 2500,
+        buffer: BufferState {
+            size_bytes: 1 << 20,
+            near_full: true,
+            level: 0x0030_0000,
+            ..BufferState::default()
+        },
+    }
 }
 
 fn dump(file: &str) -> Result<(), String> {
