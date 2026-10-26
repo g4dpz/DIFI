@@ -96,7 +96,7 @@ The authoritative Command-Packet layout is in the gitignored transcription
   - _Requirements: 4.1, 4.2, 4.3, 4.4_
   - _Files: `rust/tests/`, C++ tests, `tests/interop.sh`._
 
-- [ ] 6. Golden packets for the new 1.2 classes
+- [x] 6. Golden packets for the new 1.2 classes
   - Produce committed KB-scale golden packets for `0x0005` and `0x0006`, plus one each for
     the sample-count twins `0x0002`/`0x0003` (same layout as `0x0000`/`0x0001` but
     sample-count TSF — the golden captures the class code + TSF mode), each with a
