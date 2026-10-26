@@ -86,7 +86,40 @@ for d in 4 8 12 16; do
   fi
 done
 
-echo "== 5. DIFI Consortium conformance (external oracle) =="
+echo "== 5. generated reference signal agrees across implementations =="
+if diff <("$RUST_TOOL" gen-check) <("$CPP_TOOL" gen-check) >/dev/null; then
+  echo "  ok  generated + mapped DIFI codes are bit-identical (rust == cpp)"
+else
+  echo "FAIL: generated signal differs between implementations"
+  exit 1
+fi
+
+echo "== 6. end-to-end signal export/import over DIFI (Req 7.1) =="
+E2E_PORT_BASE=55300
+run_e2e() {
+  local label="$1"; shift
+  local port="$1"; shift
+  local imp="$1"; shift
+  local exp="$1"; shift
+  local out
+  out="$("$imp" import "127.0.0.1:$port" & imp_pid=$!
+         sleep 0.6
+         "$exp" export "127.0.0.1:$port" >/dev/null 2>&1
+         wait $imp_pid)"
+  if echo "$out" | grep -q "IMPORT OK"; then
+    echo "  ok  $label  (recovered within documented quantization loss)"
+  else
+    echo "FAIL: $label export/import"
+    echo "$out"
+    exit 1
+  fi
+}
+run_e2e "rust -> rust" $((E2E_PORT_BASE + 0)) "$RUST_TOOL" "$RUST_TOOL"
+run_e2e "cpp  -> cpp"  $((E2E_PORT_BASE + 1)) "$CPP_TOOL"  "$CPP_TOOL"
+run_e2e "cpp  -> rust" $((E2E_PORT_BASE + 2)) "$RUST_TOOL" "$CPP_TOOL"
+run_e2e "rust -> cpp"  $((E2E_PORT_BASE + 3)) "$CPP_TOOL"  "$RUST_TOOL"
+
+echo "== 7. DIFI Consortium conformance (external oracle) =="
 VENV_PY="${DIFI_VENV_PY:-/tmp/difi-venv/bin/python3}"
 if [ -x "$VENV_PY" ] && "$VENV_PY" -c "import construct" 2>/dev/null; then
   for tool_label in "rust:$RUST_TOOL" "cpp:$CPP_TOOL"; do

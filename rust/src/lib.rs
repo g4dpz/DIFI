@@ -14,6 +14,7 @@ pub mod error;
 pub mod iq;
 pub mod mapper;
 pub mod packet;
+pub mod signal;
 pub mod transport;
 
 pub use decoder::{Decoder, DifiPacket};
@@ -26,4 +27,5 @@ pub use mapper::{
 pub use packet::{
     DataFormat, Header, SignalContextPacket, SignalDataPacket, VersionContextPacket,
 };
+pub use signal::{generate as generate_signal, SignalParams};
 pub use transport::{peek_stream_id, UdpReceiver, UdpSender};

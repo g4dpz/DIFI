@@ -15,11 +15,12 @@ Shared, committed in `tests/golden/`:
   wire-format oracle. See `tests/golden/MANIFEST.md` for documented field values and
   SHA-256 checksums.
 
-## Scope (spec tasks 1–10)
+## Scope (spec tasks 1–10, 12)
 
 Each implementation provides a standalone, unit-tested DIFI 1.1 codec, UDP transport,
 and a float↔integer sample mapper, all **validated against the DIFI Consortium's own
-reference definitions**:
+reference definitions**, plus an **end-to-end reference-signal export/import** proven
+across both implementations:
 
 - Constants for the DIFI 1.1 profile (VITA OUI `0x6A621E`, 7-word header, class codes).
 - Packet model: `SignalDataPacket`, `SignalContextPacket`, `VersionContextPacket` with
@@ -42,8 +43,17 @@ reference definitions**:
   validate clean against the Consortium's vendored `construct` definitions. See
   `tests/conformance/`.
 
-Exporting a real reference signal end-to-end (task 12) and the Wireshark dissector check
-(Req 3.1) are the next increments and are not yet built.
+- **End-to-end signal export/import** (task 12 / Req 7.1, 7.3): a deterministic
+  reference float32 signal is generated from parameters (no raw I/Q committed), mapped
+  to DIFI integer, encoded, sent over UDP, decoded, inverse-mapped, and compared against
+  the regenerated original. Recovery is within the documented quantization loss
+  (end-to-end loss equals mapper-only loss — transport/codec add nothing), in all four
+  directions including cross-language. Evidence: `docs/interop/EXPORT-IMPORT-EVIDENCE.md`.
+
+The signal generator + manifest writer (task 11) and the Wireshark dissector check
+(Req 3.1) are the remaining increments. The export/import uses a reproducible
+LSIS-AFS-*style* waveform; swapping in a real vector's committed parameters (task 11)
+would make the evidence use canonical data without changing the pipeline.
 
 ## Conformance finding (why task 10 mattered)
 
@@ -105,7 +115,12 @@ cmake -S cpp -B cpp/build && cmake --build cpp/build
 4. **Sample-mapper agreement**: both tools map the same fixed float vector to integer
    codes at bit depths 4/8/12/16 and must produce byte-identical code lists and loss
    figures.
-5. **DIFI Consortium conformance**: both tools' packets pass the Consortium reference
+5. **Generated-signal agreement**: both tools' generated + mapped DIFI codes are
+   bit-identical.
+6. **End-to-end export/import**: a reference signal survives generate → map → encode →
+   UDP → decode → inverse-map within the documented quantization loss, all four
+   directions.
+7. **DIFI Consortium conformance**: both tools' packets pass the Consortium reference
    validation (skipped automatically if the conformance venv is absent — run
    `tests/conformance/setup.sh`).
 

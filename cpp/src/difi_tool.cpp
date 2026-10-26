@@ -5,6 +5,7 @@
 //   gen-golden <dir>   Write the canonical golden packets to <dir>.
 //   dump <file>        Decode a raw packet file and print its fields as text.
 
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -18,6 +19,10 @@ namespace {
 constexpr uint32_t STREAM_ID = 0x12345678;
 constexpr uint32_t INT_SECONDS = 1700000000u;
 constexpr uint64_t FRAC_PS = 123456789000ull;
+
+constexpr uint8_t EXPORT_BIT_DEPTH = 16;
+constexpr double EXPORT_FULL_SCALE = 1.0;
+constexpr size_t EXPORT_SAMPLES_PER_PACKET = 256;
 
 std::vector<difi::IqSample> golden_samples() {
   std::vector<difi::IqSample> v;
@@ -127,6 +132,103 @@ int map_check(uint8_t bit_depth) {
   return 0;
 }
 
+// Print the DIFI integer codes of the generated reference signal, so the two
+// implementations' generated+mapped output can be diffed for exact equality.
+int gen_check() {
+  difi::SignalParams params;
+  auto float_iq = difi::generate_signal(params);
+  difi::ScalingConvention conv(EXPORT_BIT_DEPTH, EXPORT_FULL_SCALE);
+  auto codes = difi::float_to_difi(float_iq, conv);
+  std::printf("samples=%zu bit_depth=%u\n", codes.size(), EXPORT_BIT_DEPTH);
+  for (auto& s : codes) std::printf("%d %d\n", s.i, s.q);
+  return 0;
+}
+
+int export_signal(const std::string& dest) {
+  difi::SignalParams params;
+  auto float_iq = difi::generate_signal(params);
+  difi::ScalingConvention conv(EXPORT_BIT_DEPTH, EXPORT_FULL_SCALE);
+  auto codes = difi::float_to_difi(float_iq, conv);
+
+  difi::StreamEncoder enc(STREAM_ID, EXPORT_BIT_DEPTH);
+  difi::UdpSender tx(dest);
+  auto ctx = enc.encode_context(2.401e9, params.sample_rate_hz, params.sample_rate_hz,
+                                -3.5, INT_SECONDS, FRAC_PS);
+  tx.send(ctx);
+
+  size_t n_packets = 0;
+  for (size_t off = 0; off < codes.size(); off += EXPORT_SAMPLES_PER_PACKET) {
+    size_t end = std::min(off + EXPORT_SAMPLES_PER_PACKET, codes.size());
+    std::vector<difi::IqSample> chunk(codes.begin() + off, codes.begin() + end);
+    auto data = enc.encode_data(chunk, INT_SECONDS, FRAC_PS);
+    tx.send(data);
+    usleep(2000);
+    ++n_packets;
+  }
+  std::printf("exported %zu samples in %zu data packets (+1 context) to %s\n",
+              codes.size(), n_packets, dest.c_str());
+  return 0;
+}
+
+int import_signal(const std::string& bind_addr) {
+  difi::SignalParams params;
+  auto original = difi::generate_signal(params);
+  size_t total = original.size();
+  difi::ScalingConvention conv(EXPORT_BIT_DEPTH, EXPORT_FULL_SCALE);
+  auto mapper_report = difi::measure_implementation_loss(original, conv);
+
+  difi::UdpReceiver rx(bind_addr);
+  rx.set_stream_filter(true, STREAM_ID);
+  rx.set_read_timeout_ms(15000);
+  difi::Decoder dec;
+
+  std::vector<difi::IqSample> recovered_codes;
+  recovered_codes.reserve(total);
+  bool ctx_seen = false;
+  while (recovered_codes.size() < total) {
+    auto buf = rx.recv();
+    auto pkt = dec.decode(buf);
+    if (pkt.kind == difi::PacketKind::SignalContext) {
+      ctx_seen = true;
+    } else if (pkt.kind == difi::PacketKind::SignalData) {
+      for (auto& s : pkt.data->samples) recovered_codes.push_back(s);
+    }
+  }
+  if (!ctx_seen) {
+    std::fprintf(stderr, "error: no Signal Context received before data\n");
+    return 1;
+  }
+
+  auto recovered = difi::difi_to_float(recovered_codes, conv);
+  double sum_sq_err = 0.0, max_abs = 0.0;
+  for (size_t k = 0; k < total; ++k) {
+    const double origs[2] = {original[k].first, original[k].second};
+    const double recs[2] = {recovered[k].first, recovered[k].second};
+    for (int c = 0; c < 2; ++c) {
+      double e = recs[c] - origs[c];
+      sum_sq_err += e * e;
+      if (std::fabs(e) > max_abs) max_abs = std::fabs(e);
+    }
+  }
+  double rms = std::sqrt(sum_sq_err / (total * 2));
+  double one_lsb = EXPORT_FULL_SCALE / conv.fs_code();
+  bool pass = recovered.size() == total &&
+              max_abs <= mapper_report.max_abs_error + 1e-12 && max_abs <= one_lsb;
+
+  std::printf("IMPORT samples=%zu packets_ok\n", total);
+  std::printf("  documented mapping: %u-bit signed, full_scale=%g, 1 LSB=%.3e\n",
+              EXPORT_BIT_DEPTH, EXPORT_FULL_SCALE, one_lsb);
+  std::printf("  mapper-only loss:  max_abs=%.3e rms=%.3e\n",
+              mapper_report.max_abs_error, mapper_report.rms_error);
+  std::printf("  end-to-end loss:   max_abs=%.3e rms=%.3e\n", max_abs, rms);
+  if (pass) {
+    std::printf("IMPORT OK — recovered within documented quantization loss\n");
+    return 0;
+  }
+  std::fprintf(stderr, "error: end-to-end loss exceeds documented bound\n");
+  return 1;
+}
+
 int send_stream(const std::string& dest, uint32_t count) {
   difi::StreamEncoder enc(STREAM_ID, 16);
   difi::UdpSender tx(dest);
@@ -197,6 +299,9 @@ int main(int argc, char** argv) {
       return recv_stream(argv[2], static_cast<uint32_t>(std::stoul(argv[3])));
     if (argc >= 3 && std::string(argv[1]) == "map-check")
       return map_check(static_cast<uint8_t>(std::stoul(argv[2])));
+    if (argc >= 3 && std::string(argv[1]) == "export") return export_signal(argv[2]);
+    if (argc >= 3 && std::string(argv[1]) == "import") return import_signal(argv[2]);
+    if (argc >= 2 && std::string(argv[1]) == "gen-check") return gen_check();
     usage();
     return 1;
   } catch (const std::exception& e) {

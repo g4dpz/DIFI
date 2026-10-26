@@ -726,6 +726,47 @@ class Decoder {
 };
 
 // ---------------------------------------------------------------------------
+// Reference-signal generator (mirrors rust/src/signal.rs)
+//
+// Reproduces a float32 complex baseband signal identically to the Rust generator, so
+// the same bytes can be regenerated on demand and exchanged over DIFI (task 12).
+// ---------------------------------------------------------------------------
+struct SignalParams {
+  size_t num_samples = 4096;
+  double sample_rate_hz = 1.25e6;
+  double tone1_hz = 50000.0;
+  double tone2_hz = -120000.0;
+  float peak = 0.9f;
+};
+
+inline std::vector<std::pair<float, float>> generate_signal(const SignalParams& p) {
+  const double TAU = 2.0 * M_PI;
+  double w1 = TAU * p.tone1_hz / p.sample_rate_hz;
+  double w2 = TAU * p.tone2_hz / p.sample_rate_hz;
+
+  std::vector<std::pair<double, double>> raw;
+  raw.reserve(p.num_samples);
+  double max_mag = 0.0;
+  for (size_t k = 0; k < p.num_samples; ++k) {
+    double t = static_cast<double>(k);
+    double env = 0.75 + 0.25 * std::cos(TAU * static_cast<double>(k) /
+                                        static_cast<double>(p.num_samples));
+    double re = env * (std::cos(w1 * t) + 0.6 * std::cos(w2 * t));
+    double im = env * (std::sin(w1 * t) + 0.6 * std::sin(w2 * t));
+    double mag = std::sqrt(re * re + im * im);
+    if (mag > max_mag) max_mag = mag;
+    raw.push_back({re, im});
+  }
+  double scale = (max_mag > 0.0) ? (static_cast<double>(p.peak) / max_mag) : 0.0;
+  std::vector<std::pair<float, float>> out;
+  out.reserve(p.num_samples);
+  for (auto& s : raw)
+    out.push_back({static_cast<float>(s.first * scale),
+                   static_cast<float>(s.second * scale)});
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Sample Mapper — float ↔ DIFI integer (mirrors rust/src/mapper.rs)
 //
 // Convention (shared, documented — DQ-2): a float sample is a normalised amplitude
