@@ -39,7 +39,7 @@ The authoritative Command-Packet layout is in the gitignored transcription
   - _Requirements: 1.2, 2.2_
   - _Files: `rust/src/command.rs`, `cpp/include/difi/difi.hpp` (`difi::command`)._
 
-- [ ] 3. Timing Flow Control packet (`0x0005`/`0x0006`) encode/decode
+- [x] 3. Timing Flow Control packet (`0x0005`/`0x0006`) encode/decode
   - Implement the Timing Flow Control packet model on the `command` core: full 21-word base
     layout, Buffer Status flags (OF/NF/NE/UF), and the class-specific TSF interpretation
     (`0x0005` sample-count, `0x0006` real-time ps).
