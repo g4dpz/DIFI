@@ -169,7 +169,7 @@ impl SignalDataPacket {
         let payload_words = payload.len() / 4;
         // samples = payload_words * 32 / (2 * bit_depth)
         let total_bits = payload_words * 32;
-        if total_bits % (2 * bit_depth as usize) != 0 {
+        if !total_bits.is_multiple_of(2 * bit_depth as usize) {
             return Err(DifiError::NotWordAligned {
                 field: "payload bits / (2*bit_depth)",
                 value: total_bits,
@@ -433,7 +433,7 @@ impl VersionContextPacket {
 /// Reject a Packet-Size/length mismatch (Req 1.5): the declared word count MUST equal
 /// the actual buffer length in words, and the buffer must be word-aligned.
 pub(crate) fn validate_size(declared_words: u16, actual_bytes: usize) -> Result<()> {
-    if actual_bytes % 4 != 0 {
+    if !actual_bytes.is_multiple_of(4) {
         return Err(DifiError::NotWordAligned {
             field: "packet length",
             value: actual_bytes,

@@ -30,6 +30,7 @@ pub fn hex_digest(data: &[u8]) -> String {
 }
 
 /// Compute the raw 32-byte SHA-256 digest of `data`.
+// `chunks_exact(64)` walks the 512-bit message blocks of this hand-rolled SHA-256.
 pub fn digest(data: &[u8]) -> [u8; 32] {
     let mut h = H0;
 
