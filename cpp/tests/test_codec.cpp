@@ -367,7 +367,46 @@ static void test_fuzz_decoder_never_crashes() {
   CHECK(all_ok);
 }
 
+// DIFI 1.2 constants — spec difi-1.2-dataplane task 1. Mirrors
+// rust/tests/constants_1_2.rs; the two implementations MUST agree.
+static void test_constants_1_2() {
+  namespace c = difi::constants;
+  // DIFI 1.1 values unchanged.
+  CHECK(c::VITA_OUI == 0x006A621Eu);
+  CHECK(c::HEADER_WORDS == 7);
+  CHECK(c::packet_type::SIGNAL_DATA == 0x1);
+  CHECK(c::packet_type::CONTEXT == 0x4);
+  CHECK(c::version_packet_type::VERSION_CONTEXT == 0x5);
+  CHECK(c::information_class::STANDARD_FLOW == 0x0000);
+  CHECK(c::information_class::VERSION_FLOW == 0x0001);
+  CHECK(c::packet_class::SIGNAL_DATA == 0x0000);
+  CHECK(c::packet_class::SIGNAL_CONTEXT == 0x0001);
+  CHECK(c::packet_class::VERSION_CONTEXT == 0x0004);
+  CHECK(c::context::WORDS == 27);
+  CHECK(c::version::WORDS == 11);
+  // DIFI 1.2 additions.
+  CHECK(c::packet_type::COMMAND == 0x6);
+  CHECK(c::information_class::DATA_PLANE_FLOW_CONTROL == 0x0002);
+  CHECK(c::information_class::DATA_PLANE_FLOW_CONTROL_RT == 0x0003);
+  CHECK(c::information_class::BASIC_DATA_PLANE_2 == 0x0004);
+  CHECK(c::packet_class::SAMPLE_COUNT_SIGNAL_DATA == 0x0002);
+  CHECK(c::packet_class::SAMPLE_COUNT_SIGNAL_CONTEXT == 0x0003);
+  CHECK(c::packet_class::SAMPLE_COUNT_FLOW_CONTROL == 0x0005);
+  CHECK(c::packet_class::REAL_TIME_FLOW_CONTROL == 0x0006);
+  CHECK(c::command::WORDS == 21);
+  CHECK(c::command::REF_POINT == 0x00000064u);
+  CHECK(c::buffer_status::OVERFLOW_BIT == 3);
+  CHECK(c::buffer_status::NEAR_FULL_BIT == 2);
+  CHECK(c::buffer_status::NEAR_EMPTY_BIT == 1);
+  CHECK(c::buffer_status::UNDERFLOW_BIT == 0);
+  // Namespaces distinct but consistent where meant to line up.
+  CHECK(c::packet_class::VERSION_CONTEXT == c::information_class::BASIC_DATA_PLANE_2);
+  CHECK(c::packet_type::SIGNAL_DATA != c::packet_type::CONTEXT);
+  CHECK(c::packet_type::CONTEXT != c::packet_type::COMMAND);
+}
+
 int main() {
+  test_constants_1_2();
   test_iq_round_trip();
   test_iq_rejections();
   test_signal_data_round_trip();

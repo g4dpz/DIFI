@@ -38,6 +38,9 @@ constexpr size_t MAX_PAYLOAD_OCTETS = 9000;
 namespace packet_type {
 constexpr uint8_t SIGNAL_DATA = 0x1;
 constexpr uint8_t CONTEXT = 0x4;
+// DIFI 1.2 Command packet with Stream ID (Timing Flow Control). (1.3.0 adds Extension
+// Command 0x7 in the separate link-establishment feature.)
+constexpr uint8_t COMMAND = 0x6;
 }  // namespace packet_type
 
 // Version Context uses VRT packet type 0x5 (distinct from Signal Context's 0x4).
@@ -45,17 +48,28 @@ namespace version_packet_type {
 constexpr uint8_t VERSION_CONTEXT = 0x5;
 }
 
+// Information Class = the set of Packet Classes making up an Information Stream (high 16
+// bits of word 3). NOT a packet layout; shares numeric values with packet_class (low 16
+// bits) but is a different field.
 namespace information_class {
-constexpr uint16_t STANDARD_FLOW = 0x0000;
-constexpr uint16_t VERSION_FLOW = 0x0001;
+constexpr uint16_t STANDARD_FLOW = 0x0000;              // DIFI 1.1 Basic Data Plane
+constexpr uint16_t VERSION_FLOW = 0x0001;               // DIFI 1.1 Version Flow
+constexpr uint16_t DATA_PLANE_FLOW_CONTROL = 0x0002;    // DIFI 1.2.0
+constexpr uint16_t DATA_PLANE_FLOW_CONTROL_RT = 0x0003; // DIFI 1.2.0 (real-time TSF)
+constexpr uint16_t BASIC_DATA_PLANE_2 = 0x0004;         // DIFI 1.2.1
 }  // namespace information_class
 
 constexpr uint16_t INFORMATION_CLASS_CODE = information_class::STANDARD_FLOW;
 
+// Packet Class = a packet's wire layout (low 16 bits of word 3). Per Table 4-1.
 namespace packet_class {
-constexpr uint16_t SIGNAL_DATA = 0x0000;
-constexpr uint16_t SIGNAL_CONTEXT = 0x0001;
-constexpr uint16_t VERSION_CONTEXT = 0x0004;
+constexpr uint16_t SIGNAL_DATA = 0x0000;                  // type 0x1, DIFI 1.1
+constexpr uint16_t SIGNAL_CONTEXT = 0x0001;               // type 0x4, DIFI 1.1
+constexpr uint16_t SAMPLE_COUNT_SIGNAL_DATA = 0x0002;     // type 0x1, DIFI 1.2
+constexpr uint16_t SAMPLE_COUNT_SIGNAL_CONTEXT = 0x0003;  // type 0x4, DIFI 1.2
+constexpr uint16_t VERSION_CONTEXT = 0x0004;              // type 0x4, DIFI 1.1
+constexpr uint16_t SAMPLE_COUNT_FLOW_CONTROL = 0x0005;    // type 0x6, DIFI 1.2
+constexpr uint16_t REAL_TIME_FLOW_CONTROL = 0x0006;       // type 0x6, DIFI 1.2
 }  // namespace packet_class
 
 // Fixed values required by the DIFI 1.1 Signal Context packet.
@@ -74,6 +88,21 @@ constexpr uint32_t CIF0_NO_CHANGE = 0x00000002;
 constexpr uint32_t CIF1 = 0x0000000C;
 constexpr uint32_t V49_SPEC_VERSION = 0x00000004;
 }  // namespace version
+
+// Fixed values for the DIFI 1.2 Timing Flow Control (Command) packet.
+namespace command {
+constexpr uint16_t WORDS = 21;              // base Timing Flow Control packet
+constexpr uint32_t REF_POINT = 0x00000064;  // same value as context Reference Point
+}  // namespace command
+
+// Buffer Status flag bit positions in the Timing Flow Control status word (word 21).
+// NB: names carry a _BIT suffix because <cmath> predefines OVERFLOW/UNDERFLOW as macros.
+namespace buffer_status {
+constexpr uint8_t OVERFLOW_BIT = 3;    // OF
+constexpr uint8_t NEAR_FULL_BIT = 2;   // NF
+constexpr uint8_t NEAR_EMPTY_BIT = 1;  // NE
+constexpr uint8_t UNDERFLOW_BIT = 0;   // UF
+}  // namespace buffer_status
 
 namespace scale {
 constexpr double RADIX_20 = 1048576.0;  // 2^20
