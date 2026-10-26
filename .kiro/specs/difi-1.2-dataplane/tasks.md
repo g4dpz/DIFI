@@ -12,13 +12,18 @@ The authoritative Command-Packet layout is in the gitignored transcription
 - [ ] 1. Regression baseline + extended constants
   - First, run the full existing 1.1 suite and record it green as the baseline that must
     stay green (Req 4.2): `cd rust && cargo test`; C++ `ctest`; `tests/interop.sh`.
-  - Add the 1.2 class codes beside the 1.1 ones in both implementations:
-    `information_class` `0x0002` (flow control) and `0x0004`; `packet_class` `0x0002`,
-    `0x0003`, `0x0005`, `0x0006`; `packet_type` Command `0x6`; Buffer Status flag bit
-    positions (OF/NF/NE/UF); Reference Point default `0x00000064`.
+  - Add the 1.2 class codes beside the 1.1 ones in both implementations, keeping
+    Information-Class and Packet-Class codes in separate namespaces (they share numeric
+    values but live in different packet fields):
+    - `information_class`: `0x0002`, `0x0003`, `0x0004` (groupings)
+    - `packet_class`: `0x0002` (Sample Count Signal Data), `0x0003` (Sample Count Signal
+      Context), `0x0005`/`0x0006` (Timing Flow Control). NB `packet_class` `0x0004`
+      (Version Context) already exists — do not duplicate or change it.
+    - `packet_type`: Command `0x6`.
+    - Buffer Status flag bit positions (OF/NF/NE/UF); Reference Point default `0x00000064`.
   - Unit test: the two implementations agree on every new constant; no 1.1 constant value
-    changed.
-  - _Requirements: 3.4, 4.1, 4.2_
+    changed; Information-Class vs Packet-Class codes are not conflated.
+  - _Requirements: 3.5, 4.1, 4.2_
   - _Files: `rust/src/constants.rs`, `cpp/include/difi/difi.hpp` (`constants`)._
 
 - [ ] 2. Shared Command-Packet core (CAM / CIF0 / CIF1 / IDs)
@@ -43,15 +48,27 @@ The authoritative Command-Packet layout is in the gitignored transcription
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4_
   - _Files: `rust/src/flowcontrol.rs`, `cpp/include/difi/difi.hpp` (`difi::flowcontrol`)._
 
-- [ ] 4. Additional standard-flow classes (`0x0002`/`0x0003`/`0x0004`)
-  - Extend the decoder dispatch (table-driven) to recognize Information Classes `0x0002`
-    and `0x0004` and Packet Classes `0x0002`/`0x0003`, routing each to the correct decode
-    path and applying the correct timestamp interpretation where it differs from 1.1.
-    Add matching encode support.
-  - Unit test: the new classes decode/encode correctly; a 1.1 packet still decodes exactly
-    as before through the extended dispatch (Req 4.4).
-  - _Requirements: 3.1, 3.2, 3.3, 4.4_
-  - _Files: `rust/src/decoder.rs`, `rust/src/encoder.rs`, C++ header._
+- [ ] 4. Sample-count Data/Context twins (`0x0002`/`0x0003`) + Information-Class routing
+  - Implement Sample Count Signal Data (`0x0002`) and Sample Count Signal Context
+    (`0x0003`) as thin variants of the existing Signal Data / Signal Context codecs: same
+    field layout, class code set to `0x0002`/`0x0003`, TSF set to sample-count mode. Add
+    matching encode support.
+  - Extend the decoder dispatch (table-driven) to recognize Information Classes `0x0002`/
+    `0x0003`/`0x0004` and Packet Classes `0x0002`/`0x0003`, routing each by Packet Class.
+    Confirm Packet Class `0x0004` still routes to the existing Version Context path and is
+    NOT re-implemented.
+  - VERIFY DURING IMPLEMENTATION: the 1.3.0 Table 4-1 summary groups Version Flow Signal
+    Context (`0x0004`) under VRT Packet Type `0x4` (Context), whereas our validated 1.1
+    implementation uses VRT type `0x5` for the Version Context (matching the DIFI
+    Consortium reference `construct` definitions and the Wireshark dissector). Do NOT
+    change our Version Context on the strength of the Table 4-1 summary alone — confirm the
+    actual VRT type against the reference definitions / dissector first; the summary table
+    is coarser than the field-level definition. Record the finding either way.
+  - Unit test: the sample-count twins round-trip and carry sample-count TSF; a 1.1 packet
+    (incl. Version Context `0x0004`) still decodes exactly as before through the extended
+    dispatch (Req 4.4).
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 4.4_
+  - _Files: `rust/src/decoder.rs`, `rust/src/encoder.rs`, `rust/src/packet.rs`, C++ header._
 
 - [ ] 5. Backward-compatibility regression gate
   - Re-run the full 1.1 suite and assert it is still green and the 1.1 golden packets are
@@ -61,8 +78,10 @@ The authoritative Command-Packet layout is in the gitignored transcription
   - _Files: `rust/tests/`, C++ tests, `tests/interop.sh`._
 
 - [ ] 6. Golden packets for the new 1.2 classes
-  - Produce committed KB-scale golden packets for `0x0005` and `0x0006` (and any
-    `0x0002`/`0x0003` layout that differs from 1.1), each with a documented field-value
+  - Produce committed KB-scale golden packets for `0x0005` and `0x0006`, plus one each for
+    the sample-count twins `0x0002`/`0x0003` (same layout as `0x0000`/`0x0001` but
+    sample-count TSF — the golden captures the class code + TSF mode), each with a
+    documented field-value
     manifest and SHA-256.
   - Test: both implementations generate each byte-identically (Req 5.2) and the C++ build
     asserts a byte match, as the 1.1 `golden_match` ctest does; the decoder recovers the

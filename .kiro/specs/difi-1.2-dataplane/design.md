@@ -42,18 +42,47 @@ the code paraphrase structure and behaviour only.
 - **DD-6 Close gaps, or re-defer with a reason.** Each 1.1 known gap (Req 7) is either
   resolved here or explicitly re-recorded with a specific reason — never silently dropped.
 
-## What 1.2 changes, concretely
+## What 1.2 changes, concretely (verified against Table 4-1 and Table 3-1)
 
-From the DIFI Consortium version history (content rephrased for licensing compliance):
-- **1.2.0** added Information Class `0x0002` and Packet Classes `0x0002`, `0x0003`,
-  `0x0005`, `0x0006` for flow control; `0x0005`/`0x0006` are the Timing Flow Control
-  (Command) packets.
-- **1.2.1** added Information Class `0x0004`.
+The authoritative Packet-Type/Packet-Class table (Table 4-1) and Information-Class table
+(Table 3-1) give the exact additions. **Packet Class and Information Class are different
+fields that share numeric values** — the earlier draft of this spec conflated them; this
+is the corrected account.
 
-The data/context parallels (`0x0002`, `0x0003`, `0x0004`) differ from the 1.1 standard-flow
-classes mainly in **timestamp interpretation** (sample-count vs real-time), which the
-toolkit already models in its `tsf` constants. The substantive new work is the Timing Flow
-Control Command packet.
+**Packet Classes (Table 4-1) — the actual packet layouts:**
+
+| Packet Type | Packet Class | Meaning | Status for us |
+|-------------|--------------|---------|---------------|
+| 0x1 Data | `0x0000` | Standard Flow Signal Data | 1.1 — implemented |
+| 0x1 Data | `0x0002` | **Sample Count Signal Data** | NEW — same layout as 0x0000, TSF = sample count |
+| 0x4 Context | `0x0001` | Standard Flow Signal Context | 1.1 — implemented |
+| 0x4 Context | `0x0003` | **Sample Count Signal Context** | NEW — same layout as 0x0001, TSF = sample count |
+| 0x4 Context | `0x0004` | Version Flow Signal Context | 1.1 — already implemented (our `version_context`) |
+| 0x6 Command | `0x0005` | Sample Count Timing Flow Control | NEW — the real new work |
+| 0x6 Command | `0x0006` | Real-Time TSF Timing Flow Control | NEW — the real new work |
+
+**Information Classes (Table 3-1) — groupings, NOT packet layouts.** An Information Class
+names the set of Packet Streams that make up an Information Stream; it does not define a
+packet's bits:
+
+| Info Class | Comprises | Note |
+|-----------|-----------|------|
+| `0x0000` | Signal Data + Signal Context | 1.1 "Basic Data Plane" |
+| `0x0004` | Signal Data + Signal Context | 1.2.1 — a second "Basic Data Plane" grouping |
+| `0x0002` | Signal Data + Signal Context + Timing Flow Control | 1.2.0 — "Data Plane plus Flow Control" |
+| `0x0003` | as `0x0002`, real-time-TSF variant | 1.2.0 |
+| `0x0001` | Version Flow Signal Context packet | 1.1 "Version Flow" |
+
+**So the concrete new packet work is small and sharply defined:**
+1. The two Timing Flow Control Command packets (`0x0005`/`0x0006`) — genuinely new, built
+   on the shared `command` core. This is the bulk of the work.
+2. The two sample-count twins (`0x0002` Signal Data, `0x0003` Signal Context) — same field
+   layout as `0x0000`/`0x0001`, differing only in class code and TSF mode (which the
+   toolkit already models in its `tsf` constants). Implemented as a thin variant of the
+   existing Signal Data / Signal Context codecs, not new layouts.
+3. Recognition/routing of Information Classes `0x0002`/`0x0003`/`0x0004` — constants and
+   dispatch only; no new packet bits. `0x0004` as a *Packet* Class is the Version Context
+   we already ship.
 
 ## Wire format — Timing Flow Control Command Packet (as transcribed)
 
@@ -97,10 +126,19 @@ Both implementations mirror this structure. New Rust modules in `rust/src/`; new
 in the C++ header `cpp/include/difi/difi.hpp`.
 
 ### 1. Extended constants (`constants`)
-- Add `information_class::FLOW_CONTROL = 0x0002` and the 1.2.1 `0x0004` class; add
-  `packet_class` entries `0x0002`, `0x0003`, `0x0005`, `0x0006`; add the Command-Packet
-  VRT type `0x6` to `packet_type`. All beside the existing 1.1 values, none changed.
-- Add Buffer Status flag bit positions (OF/NF/NE/UF) and Reference Point default.
+- Add Information-Class codes `0x0002` (Data Plane plus Flow Control), `0x0003` (its
+  real-time-TSF variant), and `0x0004` (second Basic Data Plane grouping) to
+  `information_class`, beside the existing `0x0000`/`0x0001`.
+- Add Packet-Class codes `0x0002` (Sample Count Signal Data), `0x0003` (Sample Count
+  Signal Context), `0x0005`/`0x0006` (Timing Flow Control) to `packet_class`, beside the
+  existing `0x0000`/`0x0001`/`0x0004`. (Packet Class `0x0004` Version Context already
+  exists — unchanged.)
+- Add the Command-Packet VRT type `0x6` to `packet_type` (type `0x7` extension is for the
+  separate 1.3.0 feature).
+- Add Buffer Status flag bit positions (OF/NF/NE/UF) and the Reference Point default.
+- Keep Information-Class and Packet-Class constants in clearly separate namespaces/modules
+  so their shared numeric values are never confused (they live in different packet fields).
+  None of the existing 1.1 values change.
 - _Files: `rust/src/constants.rs`, `cpp/include/difi/difi.hpp` (`constants`)._
 
 ### 2. Shared Command-Packet core (`command`)
@@ -116,11 +154,16 @@ in the C++ header `cpp/include/difi/difi.hpp`.
   class-specific TSF interpretation.
 - _Files: `rust/src/flowcontrol.rs`, `cpp/include/difi/difi.hpp` (`difi::flowcontrol`)._
 
-### 4. Decoder dispatch extension (`decoder`)
-- Extend the existing decoder to recognize the new Information/Packet classes via the
-  dispatch table (DD-4) and route `0x0005`/`0x0006` to the flow-control decode path, with
-  the same fail-closed validation. 1.1 packets keep their exact existing path (Req 4.4).
-- _Files: `rust/src/decoder.rs`, C++ header._
+### 4. Sample-count twins + decoder dispatch extension (`decoder`, `packet`)
+- Sample-count Data/Context (`0x0002`/`0x0003`): reuse the existing Signal Data / Signal
+  Context field codecs with the class code and TSF mode set to sample-count — a thin
+  variant, not a new layout. Encode support mirrors this.
+- Extend the decoder's dispatch table (DD-4) to recognize the new Packet Classes
+  (`0x0002`/`0x0003`/`0x0005`/`0x0006`) and the new Information Classes
+  (`0x0002`/`0x0003`/`0x0004`), routing each by Packet Class to the right codec, with the
+  same fail-closed validation. 1.1 packets keep their exact existing path (Req 4.4), and
+  Packet Class `0x0004` continues to route to the existing Version Context path.
+- _Files: `rust/src/decoder.rs`, `rust/src/encoder.rs`, `rust/src/packet.rs`, C++ header._
 
 ### 5. Golden packets + conformance
 - Add golden packets for `0x0005` and `0x0006` (and any `0x0002`/`0x0003` layout that

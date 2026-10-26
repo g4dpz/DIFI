@@ -7,18 +7,31 @@ This feature upgrades the existing two-implementation toolkit (Rust library crat
 data plane. It adds the packet families introduced across the 1.2.x revisions and closes
 the known gaps carried over from the 1.1 implementation.
 
-Per the DIFI Consortium's published version history, the 1.2 line added:
-- **1.2.0 (Aug 2023)** — a standard **flow-control** mechanism, enabled by a new
-  Information Class `0x0002` and new Packet Classes `0x0002`, `0x0003`, `0x0005`, and
-  `0x0006`; plus a document restructure and a table of deviations from VITA 49.2.
-- **1.2.1 (Feb 2025)** — clarifications from Plugfest Europe 2024 and a new Information
-  Class `0x0004`.
+Per the DIFI Consortium's published version history, the 1.2 line added a standard
+**flow-control** mechanism (1.2.0, Aug 2023), with clarifications and an additional
+Information Class grouping in 1.2.1 (Feb 2025). Verified against the authoritative
+Packet-Type/Packet-Class table (Table 4-1) and Information-Class table (Table 3-1), the
+concrete packet-level additions over our DIFI 1.1 implementation are:
 
-Two of the new packet classes (`0x0005`, `0x0006`) are **Timing Flow Control** packets —
-VITA 49.2 Command Packets (VRT type `0x6`). These are the same Command/Extension-Command
-packet family that the later 1.3.0 link-establishment packets extend, so building them
-here establishes the shared foundation (CAM field, CIF0/CIF1 indicators,
-Controllee/Controller IDs, Buffer Size) once, for reuse by the 1.3.0 control plane.
+- **New Packet Classes (type 0x6, Command): `0x0005` Sample Count Timing Flow Control and
+  `0x0006` Real-Time TSF Timing Flow Control.** These are the genuinely new packets — VITA
+  49.2 Command Packets carrying buffer status and timing. They are the same
+  Command/Extension-Command family the later 1.3.0 link-establishment packets extend, so
+  building them here establishes the shared foundation (CAM field, CIF0/CIF1 indicators,
+  Controllee/Controller IDs, Buffer Size) once, for reuse by the 1.3.0 control plane.
+- **New Packet Classes (type 0x1/0x4, Data/Context): `0x0002` Sample Count Signal Data and
+  `0x0003` Sample Count Signal Context.** These carry the **same field layout** as the 1.1
+  Signal Data (`0x0000`) and Signal Context (`0x0001`); they differ only in the class code
+  and the timestamp mode (TSF = sample count rather than real-time picoseconds).
+
+Two things that look like additions but are **not new packets**:
+- **Packet Class `0x0004` (Version Flow Signal Context)** is the Version Context packet we
+  already implement — our existing `packet_class::version_context = 0x0004`. No new work.
+- **Information Classes `0x0002`, `0x0003`, `0x0004`** are *groupings* of packet classes
+  (which Packet Streams make up an Information Stream), NOT packet layouts. `0x0002`/`0x0003`
+  group the data plane plus Timing Flow Control; `0x0004` is a second "Basic Data Plane"
+  grouping (same streams as `0x0000`). Supporting them means recognizing the codes and
+  routing, not decoding a new bit layout.
 
 This feature is **additive and backward-compatible**: it must not break the 1.1
 data-plane behaviour, layouts, public API semantics, or any passing test. The target is
@@ -91,25 +104,32 @@ Sink can report buffer state and timing to a Source.
 4. WHEN a requested configuration cannot produce a well-formed packet THEN the toolkit
    SHALL reject it with a clear error rather than emit a malformed packet.
 
-### Requirement 3 — Additional standard-flow classes (1.2.0 / 1.2.1)
+### Requirement 3 — Sample-count Data/Context classes and Information-Class recognition
 
-**User Story:** As an implementer, I want to handle the additional Information and Packet
-Classes added in 1.2.0/1.2.1, so that my device interoperates with 1.2.1 peers across the
-full class set.
+**User Story:** As an implementer, I want to handle the sample-count Data/Context packet
+classes and recognize the new Information Classes, so that my device interoperates with
+1.2.1 peers across the full class set.
 
 #### Acceptance Criteria
-1. WHEN a packet carries Information Class `0x0002` (flow-control) or `0x0004` (added in
-   1.2.1) THEN the toolkit SHALL recognize the class and route the packet to the correct
-   decode path rather than rejecting it as unknown.
-2. WHEN a packet carries Packet Class `0x0002` or `0x0003` THEN the toolkit SHALL decode
-   it per its layout, distinguishing the standard-flow data/context parallels from the
-   1.1 classes (`0x0000`/`0x0001`/`0x0004`) — where these differ from 1.1 primarily in
-   timestamp interpretation (seconds vs sample count), the toolkit SHALL apply the correct
-   interpretation.
-3. WHEN encoding a stream that uses a 1.2 Information/Packet Class THEN the toolkit SHALL
-   emit the correct class codes and the matching timestamp mode.
-4. The class codes (Information and Packet) SHALL be defined as named constants in both
-   implementations, identical across them, alongside the existing 1.1 codes.
+1. WHEN a packet carries Packet Class `0x0002` (Sample Count Signal Data) THEN the toolkit
+   SHALL decode it using the Signal Data field layout with TSF interpreted as a sample
+   count; WHEN it carries Packet Class `0x0003` (Sample Count Signal Context) THEN the
+   toolkit SHALL decode it using the Signal Context field layout with TSF interpreted as a
+   sample count.
+2. WHEN encoding a sample-count stream THEN the toolkit SHALL emit Packet Class `0x0002`/
+   `0x0003` with TSF set to sample-count mode and the same field layout as the
+   corresponding `0x0000`/`0x0001` packet.
+3. WHEN a packet carries Information Class `0x0002`, `0x0003`, or `0x0004` THEN the toolkit
+   SHALL recognize the Information Class code and route the packet by its Packet Class
+   rather than rejecting the Information Class as unknown — noting that the Information
+   Class is a grouping of packet streams, not a distinct packet layout.
+4. The toolkit SHALL NOT treat Packet Class `0x0004` as new work: it is the Version Flow
+   Signal Context packet already implemented in the 1.1 toolkit, and SHALL continue to be
+   handled by the existing Version Context path.
+5. All class codes (Information and Packet) SHALL be defined as named constants in both
+   implementations, identical across them, alongside the existing 1.1 codes, and SHALL
+   distinguish Information-Class codes from Packet-Class codes (they share numeric values
+   but live in different fields).
 
 ### Requirement 4 — Backward compatibility with 1.1
 
