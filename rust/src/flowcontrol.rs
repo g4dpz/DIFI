@@ -100,8 +100,7 @@ impl TimingFlowControlPacket {
         if !self.cam.controllee_id_present || !self.cam.controller_id_present {
             return Err(DifiError::Invalid {
                 field: "cam.id_present",
-                detail: "Timing Flow Control requires Controllee and Controller ID present"
-                    .into(),
+                detail: "Timing Flow Control requires Controllee and Controller ID present".into(),
             });
         }
         if self.cam.controllee_id_format || self.cam.controller_id_format {
@@ -318,7 +317,10 @@ mod tests {
         assert_eq!(bytes.len(), 84);
         let back = TimingFlowControlPacket::unpack(&bytes).unwrap();
         assert_eq!(back.kind, FlowControlKind::SampleCount);
-        assert_eq!(back.header.packet_class, packet_class::SAMPLE_COUNT_FLOW_CONTROL);
+        assert_eq!(
+            back.header.packet_class,
+            packet_class::SAMPLE_COUNT_FLOW_CONTROL
+        );
         assert_eq!(back.header.tsf, tsf::SAMPLE_COUNT);
         assert_eq!(back.message_id, 7);
         assert_eq!(back.controllee_id, 0x1111_2222);
@@ -336,7 +338,10 @@ mod tests {
         let bytes = p.pack().unwrap();
         let back = TimingFlowControlPacket::unpack(&bytes).unwrap();
         assert_eq!(back.kind, FlowControlKind::RealTime);
-        assert_eq!(back.header.packet_class, packet_class::REAL_TIME_FLOW_CONTROL);
+        assert_eq!(
+            back.header.packet_class,
+            packet_class::REAL_TIME_FLOW_CONTROL
+        );
         assert_eq!(back.header.tsf, tsf::REAL_TIME_PS);
     }
 

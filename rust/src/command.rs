@@ -96,8 +96,7 @@ impl Cam {
             controllee_id_format: (word >> cam_bits::CONTROLLEE_FORMAT) & 1 == 1,
             controller_id_present: (word >> cam_bits::CONTROLLER_PRESENT) & 1 == 1,
             controller_id_format: (word >> cam_bits::CONTROLLER_FORMAT) & 1 == 1,
-            action_mode: ((word >> cam_bits::ACTION_MODE_SHIFT) & cam_bits::ACTION_MODE_MASK)
-                as u8,
+            action_mode: ((word >> cam_bits::ACTION_MODE_SHIFT) & cam_bits::ACTION_MODE_MASK) as u8,
             nack: (word >> cam_bits::NACK) & 1 == 1,
             validity_ack: (word >> cam_bits::VALIDITY_ACK) & 1 == 1,
             timestamp_control: ((word >> cam_bits::TS_CONTROL_SHIFT) & cam_bits::TS_CONTROL_MASK)
@@ -114,7 +113,8 @@ impl Cam {
         w |= (self.controllee_id_format as u32) << cam_bits::CONTROLLEE_FORMAT;
         w |= (self.controller_id_present as u32) << cam_bits::CONTROLLER_PRESENT;
         w |= (self.controller_id_format as u32) << cam_bits::CONTROLLER_FORMAT;
-        w |= ((self.action_mode as u32) & cam_bits::ACTION_MODE_MASK) << cam_bits::ACTION_MODE_SHIFT;
+        w |=
+            ((self.action_mode as u32) & cam_bits::ACTION_MODE_MASK) << cam_bits::ACTION_MODE_SHIFT;
         w |= (self.nack as u32) << cam_bits::NACK;
         w |= (self.validity_ack as u32) << cam_bits::VALIDITY_ACK;
         w |= ((self.timestamp_control as u32) & cam_bits::TS_CONTROL_MASK)
@@ -175,7 +175,7 @@ pub mod cif1 {
 /// packets, in wire order after the 7-word prologue: CAM, CIF0, Message ID, Controllee
 /// ID, Controller ID, (CIF1). The command-specific fields that follow (Reference Point,
 /// Sample Rate, …) are owned by each concrete packet type, selected by the CIF bits.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct CommandContext {
     pub cam: Cam,
     pub cif0: Cif,
@@ -185,19 +185,6 @@ pub struct CommandContext {
     /// 32-bit, unique within a deployment; defaults to 0 when unused.
     pub controller_id: u32,
     pub cif1: Cif,
-}
-
-impl Default for CommandContext {
-    fn default() -> Self {
-        CommandContext {
-            cam: Cam::default(),
-            cif0: Cif::default(),
-            message_id: 0,
-            controllee_id: 0,
-            controller_id: 0,
-            cif1: Cif::default(),
-        }
-    }
 }
 
 /// Buffer Size field (3 words on the wire in the full command packet: a 64-bit size plus
@@ -269,9 +256,19 @@ mod tests {
     #[test]
     fn cam_round_trip_preserves_all_bits() {
         // Exercise a spread of words including reserved bits we don't model.
-        for word in [0x0000_0000u32, 0xFFFF_FFFF, 0xA110_0000, 0x1234_5678, 0x8000_0000] {
+        for word in [
+            0x0000_0000u32,
+            0xFFFF_FFFF,
+            0xA110_0000,
+            0x1234_5678,
+            0x8000_0000,
+        ] {
             let cam = Cam::from_word(word);
-            assert_eq!(cam.to_word(), word, "CAM round-trip failed for {word:#010X}");
+            assert_eq!(
+                cam.to_word(),
+                word,
+                "CAM round-trip failed for {word:#010X}"
+            );
         }
     }
 
@@ -297,8 +294,8 @@ mod tests {
     #[test]
     fn cam_nack_and_ack_bits_map() {
         let cam = Cam {
-            nack: true,          // bit 22
-            ack_bits: 0b1010,    // bits 11-8
+            nack: true,       // bit 22
+            ack_bits: 0b1010, // bits 11-8
             ..Cam::default()
         };
         let w = cam.to_word();
@@ -345,10 +342,17 @@ mod tests {
     #[test]
     fn buffer_level_is_12_bit() {
         // A level with bits above 12 must round-trip only the low 12 bits.
-        let bs = BufferState { level: 0x0FFF, ..BufferState::default() };
+        let bs = BufferState {
+            level: 0x0FFF,
+            ..BufferState::default()
+        };
         let back = BufferState::from_status_word(0, bs.status_word());
         assert_eq!(back.level, 0x0FFF);
-        assert_eq!(bs.status_word() >> 16, 0, "nothing leaks into reserved bits");
+        assert_eq!(
+            bs.status_word() >> 16,
+            0,
+            "nothing leaks into reserved bits"
+        );
     }
 
     #[test]

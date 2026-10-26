@@ -24,16 +24,14 @@ pub mod transport;
 
 pub use command::{BufferState, Cam, Cif, CommandContext};
 pub use decoder::{Decoder, DifiPacket};
-pub use flowcontrol::{FlowControlKind, TimingFlowControlPacket};
 pub use encoder::StreamEncoder;
 pub use error::{DifiError, Result};
+pub use flowcontrol::{FlowControlKind, TimingFlowControlPacket};
 pub use iq::IqSample;
 pub use manifest::{build as build_manifest, DifiContext, Manifest};
 pub use mapper::{
     difi_to_float, float_to_difi, measure_implementation_loss, LossReport, ScalingConvention,
 };
-pub use packet::{
-    DataFormat, Header, SignalContextPacket, SignalDataPacket, VersionContextPacket,
-};
+pub use packet::{DataFormat, Header, SignalContextPacket, SignalDataPacket, VersionContextPacket};
 pub use signal::{generate as generate_signal, SignalParams};
 pub use transport::{peek_stream_id, TcpReceiver, TcpSender, UdpReceiver, UdpSender};

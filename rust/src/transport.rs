@@ -203,9 +203,8 @@ impl TcpReceiver {
         let stream = self.conn.as_mut().expect("conn set");
         loop {
             let mut len_buf = [0u8; 4];
-            match read_exact_or_eof(stream, &mut len_buf)? {
-                false => return Ok(None), // clean EOF at a frame boundary
-                true => {}
+            if !read_exact_or_eof(stream, &mut len_buf)? {
+                return Ok(None); // clean EOF at a frame boundary
             }
             let len = u32::from_be_bytes(len_buf) as usize;
             if len > TCP_MAX_FRAME {

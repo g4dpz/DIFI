@@ -13,12 +13,12 @@ use std::fs;
 use std::process::ExitCode;
 use std::time::Duration;
 
-use difi::constants::{command, information_class, packet_class, packet_type, tsf, tsi, tsm};
 use difi::command::{action_mode, BufferState, Cam};
+use difi::constants::{command, information_class, packet_class, packet_type, tsf, tsi, tsm};
 use difi::{
     generate_signal, measure_implementation_loss, Decoder, DifiPacket, FlowControlKind, Header,
-    IqSample, ScalingConvention, SignalParams, StreamEncoder, TimingFlowControlPacket,
-    UdpReceiver, UdpSender,
+    IqSample, ScalingConvention, SignalParams, StreamEncoder, TimingFlowControlPacket, UdpReceiver,
+    UdpSender,
 };
 
 const STREAM_ID: u32 = 0x1234_5678;
@@ -38,8 +38,8 @@ fn map_check_vector() -> Vec<(f32, f32)> {
         (0.0, 0.0),
         (0.5, -0.5),
         (1.0, -1.0),
-        (1.5, -1.5),   // over-range: must saturate
-        (-1.5, 1.5),   // over-range negative
+        (1.5, -1.5), // over-range: must saturate
+        (-1.5, 1.5), // over-range negative
         (0.123_456, -0.987_654),
         (0.000_030_5, -0.000_030_5), // ~1 LSB at 16-bit
         (0.999_99, -0.999_99),
@@ -79,8 +79,8 @@ fn stream_samples(packet_index: u32) -> Vec<IqSample> {
 
 fn golden_samples() -> Vec<IqSample> {
     // A small, deterministic ramp exercising positive, negative and extreme values.
-    (0..8)
-        .map(|n| IqSample::new((n as i32) - 4, 100 - (n as i32) * 25))
+    (0..8i32)
+        .map(|n| IqSample::new(n - 4, 100 - n * 25))
         .collect()
 }
 
@@ -110,7 +110,10 @@ fn write_golden(dir: &str) -> std::io::Result<()> {
     let sc_ctx = enc
         .encode_context_sample_count(2.401e9, 1.0e6, 1.25e6, -3.5, INT_SECONDS, 0)
         .expect("sample-count context");
-    fs::write(format!("{dir}/sample_count_context_16bit.difi.bin"), &sc_ctx)?;
+    fs::write(
+        format!("{dir}/sample_count_context_16bit.difi.bin"),
+        &sc_ctx,
+    )?;
 
     // Sample Count Signal Data (0x0002): same samples as the 1.1 data golden,
     // fractional field = sample count 4096.
@@ -122,11 +125,15 @@ fn write_golden(dir: &str) -> std::io::Result<()> {
     // Timing Flow Control (0x0005 sample-count, 0x0006 real-time).
     fs::write(
         format!("{dir}/timing_flow_control_sc.difi.bin"),
-        golden_flow_control(FlowControlKind::SampleCount).pack().expect("tfc sc"),
+        golden_flow_control(FlowControlKind::SampleCount)
+            .pack()
+            .expect("tfc sc"),
     )?;
     fs::write(
         format!("{dir}/timing_flow_control_rt.difi.bin"),
-        golden_flow_control(FlowControlKind::RealTime).pack().expect("tfc rt"),
+        golden_flow_control(FlowControlKind::RealTime)
+            .pack()
+            .expect("tfc rt"),
     )?;
 
     println!("wrote 7 golden packets to {dir}");
@@ -197,29 +204,58 @@ fn dump(file: &str) -> Result<(), String> {
     }
     match dec.decode(&buf).map_err(|e| e.to_string())? {
         DifiPacket::SignalContext(c) => {
-            println!("SignalContext stream=0x{:08X} class=0x{:04X}", c.header.stream_id, packet_class::SIGNAL_CONTEXT);
-            println!("  rf={} Hz bw={} Hz fs={} Hz gain={} dB bit_depth={}",
-                c.rf_reference_hz, c.bandwidth_hz, c.sample_rate_hz, c.gain_db, c.data_format.bit_depth);
+            println!(
+                "SignalContext stream=0x{:08X} class=0x{:04X}",
+                c.header.stream_id,
+                packet_class::SIGNAL_CONTEXT
+            );
+            println!(
+                "  rf={} Hz bw={} Hz fs={} Hz gain={} dB bit_depth={}",
+                c.rf_reference_hz,
+                c.bandwidth_hz,
+                c.sample_rate_hz,
+                c.gain_db,
+                c.data_format.bit_depth
+            );
         }
         DifiPacket::VersionContext(v) => {
             println!("VersionContext stream=0x{:08X}", v.header.stream_id);
-            println!("  year={} day={} changed={}", v.year, v.day, v.context_changed);
+            println!(
+                "  year={} day={} changed={}",
+                v.year, v.day, v.context_changed
+            );
         }
         DifiPacket::SignalData(d) => {
-            println!("SignalData stream=0x{:08X} seq={} bit_depth={} samples={}",
-                d.header.stream_id, d.header.seq_num, d.bit_depth, d.samples.len());
+            println!(
+                "SignalData stream=0x{:08X} seq={} bit_depth={} samples={}",
+                d.header.stream_id,
+                d.header.seq_num,
+                d.bit_depth,
+                d.samples.len()
+            );
             for (n, s) in d.samples.iter().enumerate() {
                 println!("  [{n}] I={} Q={}", s.i, s.q);
             }
         }
         DifiPacket::TimingFlowControl(f) => {
-            println!("TimingFlowControl stream=0x{:08X} class=0x{:04X} kind={:?}",
-                f.header.stream_id, f.header.packet_class, f.kind);
-            println!("  controllee=0x{:08X} controller=0x{:08X} msg_id={}",
-                f.controllee_id, f.controller_id, f.message_id);
-            println!("  fs={} Hz ts_adj={} fs buffer={} B OF={} NF={} NE={} UF={}",
-                f.sample_rate_hz, f.timestamp_adjust_fs, f.buffer.size_bytes,
-                f.buffer.overflow, f.buffer.near_full, f.buffer.near_empty, f.buffer.underflow);
+            println!(
+                "TimingFlowControl stream=0x{:08X} class=0x{:04X} kind={:?}",
+                f.header.stream_id, f.header.packet_class, f.kind
+            );
+            println!(
+                "  controllee=0x{:08X} controller=0x{:08X} msg_id={}",
+                f.controllee_id, f.controller_id, f.message_id
+            );
+            println!(
+                "  fs={} Hz ts_adj={} fs buffer={} B OF={} NF={} NE={} UF={}",
+                f.sample_rate_hz,
+                f.timestamp_adjust_fs,
+                f.buffer.size_bytes,
+                f.buffer.overflow,
+                f.buffer.near_full,
+                f.buffer.near_empty,
+                f.buffer.underflow
+            );
         }
     }
     Ok(())
@@ -280,7 +316,11 @@ fn tcp_recv(bind_addr: &str, count: u32) -> Result<(), String> {
     while data_seen < count {
         let buf = match rx.recv().map_err(|e| format!("tcp recv: {e}"))? {
             Some(b) => b,
-            None => return Err(format!("stream closed after {data_seen}/{count} data packets")),
+            None => {
+                return Err(format!(
+                    "stream closed after {data_seen}/{count} data packets"
+                ))
+            }
         };
         match dec.decode(&buf).map_err(|e| e.to_string())? {
             DifiPacket::SignalContext(c) => {
@@ -295,7 +335,10 @@ fn tcp_recv(bind_addr: &str, count: u32) -> Result<(), String> {
                     return Err(format!("sample mismatch at data packet {data_seen}"));
                 }
                 if d.header.seq_num != (data_seen % 16) as u8 {
-                    return Err(format!("seq mismatch at packet {data_seen}: got {}", d.header.seq_num));
+                    return Err(format!(
+                        "seq mismatch at packet {data_seen}: got {}",
+                        d.header.seq_num
+                    ));
                 }
                 data_seen += 1;
             }
@@ -382,7 +425,8 @@ fn fc_source(data_dest: &str, fc_bind: &str, count: u32) -> Result<(), String> {
     // Bind the FC listener first so the sink's reply can't race ahead of us.
     let mut fc_rx = UdpReceiver::bind(fc_bind).map_err(|e| e.to_string())?;
     fc_rx.set_stream_filter(Some(STREAM_ID));
-    fc_rx.set_read_timeout(Some(Duration::from_secs(10)))
+    fc_rx
+        .set_read_timeout(Some(Duration::from_secs(10)))
         .map_err(|e| e.to_string())?;
 
     let mut enc = StreamEncoder::new(STREAM_ID, 16);
@@ -491,10 +535,9 @@ fn generate_to_dir(work_dir: &str) -> Result<(), String> {
 /// parameters, recompute the SHA-256, and confirm it matches the recorded value.
 fn verify_manifest(manifest_path: &str) -> Result<(), String> {
     let text = fs::read_to_string(manifest_path).map_err(|e| e.to_string())?;
-    let recorded_sha = json_string_field(&text, "sha256")
-        .ok_or("manifest missing sha256 field")?;
-    let recorded_size: usize = json_number_field(&text, "byte_size")
-        .ok_or("manifest missing byte_size field")?;
+    let recorded_sha = json_string_field(&text, "sha256").ok_or("manifest missing sha256 field")?;
+    let recorded_size: usize =
+        json_number_field(&text, "byte_size").ok_or("manifest missing byte_size field")?;
 
     // Regenerate from the committed default parameters (the generator is deterministic).
     let params = SignalParams::default();
@@ -527,7 +570,9 @@ fn json_number_field(text: &str, key: &str) -> Option<usize> {
     let start = text.find(&needle)? + needle.len();
     let colon = text[start..].find(':')? + start + 1;
     let rest = text[colon..].trim_start();
-    let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
     rest[..end].parse().ok()
 }
 
@@ -536,8 +581,8 @@ fn json_number_field(text: &str, key: &str) -> Option<usize> {
 fn gen_check() -> Result<(), String> {
     let params = SignalParams::default();
     let float_iq = generate_signal(&params);
-    let conv = ScalingConvention::new(EXPORT_BIT_DEPTH, EXPORT_FULL_SCALE)
-        .map_err(|e| e.to_string())?;
+    let conv =
+        ScalingConvention::new(EXPORT_BIT_DEPTH, EXPORT_FULL_SCALE).map_err(|e| e.to_string())?;
     let codes = difi::float_to_difi(&float_iq, &conv);
     println!("samples={} bit_depth={EXPORT_BIT_DEPTH}", codes.len());
     for s in &codes {
@@ -551,8 +596,8 @@ fn gen_check() -> Result<(), String> {
 fn export(dest: &str) -> Result<(), String> {
     let params = SignalParams::default();
     let float_iq = generate_signal(&params);
-    let conv = ScalingConvention::new(EXPORT_BIT_DEPTH, EXPORT_FULL_SCALE)
-        .map_err(|e| e.to_string())?;
+    let conv =
+        ScalingConvention::new(EXPORT_BIT_DEPTH, EXPORT_FULL_SCALE).map_err(|e| e.to_string())?;
     let codes: Vec<IqSample> = difi::float_to_difi(&float_iq, &conv);
 
     let mut enc = StreamEncoder::new(STREAM_ID, EXPORT_BIT_DEPTH);
@@ -608,8 +653,8 @@ fn import_impl(bind_addr: &str, interop: bool) -> Result<(), String> {
     let params = SignalParams::default();
     let original = generate_signal(&params);
     let total = original.len();
-    let conv = ScalingConvention::new(EXPORT_BIT_DEPTH, EXPORT_FULL_SCALE)
-        .map_err(|e| e.to_string())?;
+    let conv =
+        ScalingConvention::new(EXPORT_BIT_DEPTH, EXPORT_FULL_SCALE).map_err(|e| e.to_string())?;
 
     // Loss budget: the mapper's own quantisation bound (<=1 LSB per component). The
     // end-to-end path must not exceed the mapper-only loss — if it does, something in
@@ -664,10 +709,17 @@ fn import_impl(bind_addr: &str, interop: bool) -> Result<(), String> {
     };
     let pass = recovered.len() == total && max_abs <= bound;
 
-    let mode = if interop { "interop (<=1 LSB)" } else { "strict (<=mapper loss)" };
+    let mode = if interop {
+        "interop (<=1 LSB)"
+    } else {
+        "strict (<=mapper loss)"
+    };
     println!("IMPORT samples={total} packets_ok  mode={mode}");
     println!("  documented mapping: {EXPORT_BIT_DEPTH}-bit signed, full_scale={EXPORT_FULL_SCALE}, 1 LSB={one_lsb:.3e}");
-    println!("  mapper-only loss:  max_abs={:.3e} rms={:.3e}", mapper_report.max_abs_error, mapper_report.rms_error);
+    println!(
+        "  mapper-only loss:  max_abs={:.3e} rms={:.3e}",
+        mapper_report.max_abs_error, mapper_report.rms_error
+    );
     println!("  end-to-end loss:   max_abs={max_abs:.3e} rms={rms:.3e}");
     if pass {
         println!("IMPORT OK — recovered within documented quantization loss");
@@ -746,7 +798,11 @@ fn main() -> ExitCode {
             }
         },
         Some("fc-source") => {
-            match (args.get(2), args.get(3), args.get(4).and_then(|s| s.parse().ok())) {
+            match (
+                args.get(2),
+                args.get(3),
+                args.get(4).and_then(|s| s.parse().ok()),
+            ) {
                 (Some(data_dest), Some(fc_bind), Some(count)) => {
                     match fc_source(data_dest, fc_bind, count) {
                         Ok(()) => ExitCode::SUCCESS,
@@ -763,7 +819,11 @@ fn main() -> ExitCode {
             }
         }
         Some("fc-sink") => {
-            match (args.get(2), args.get(3), args.get(4).and_then(|s| s.parse().ok())) {
+            match (
+                args.get(2),
+                args.get(3),
+                args.get(4).and_then(|s| s.parse().ok()),
+            ) {
                 (Some(data_bind), Some(fc_dest), Some(count)) => {
                     match fc_sink(data_bind, fc_dest, count) {
                         Ok(()) => ExitCode::SUCCESS,

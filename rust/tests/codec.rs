@@ -35,7 +35,7 @@ fn iq_bit_exact_round_trip_all_depths() {
     for &depth in &[4u8, 8, 12, 16] {
         let (min, max) = sample_range(depth);
         // Choose a sample count that yields whole words at this depth.
-        // 32 complex samples * 2 * depth is always a multiple of 32 for depth in {4,8,12,16}? 
+        // 32 complex samples * 2 * depth is always a multiple of 32 for depth in {4,8,12,16}?
         // 32*2*12 = 768 (÷32 = 24 ok). Use 16 samples: 16*2*depth = 32*depth → always ÷32.
         let n = 16usize;
         let samples: Vec<IqSample> = (0..n)
@@ -242,11 +242,18 @@ fn max_samples_per_packet_is_word_aligned_and_within_limit() {
         let enc = StreamEncoder::new(0x1, depth);
         let n = enc.max_samples_per_packet();
         // word aligned
-        assert_eq!((n * 2 * depth as usize) % 32, 0, "depth {depth} not aligned");
+        assert_eq!(
+            (n * 2 * depth as usize) % 32,
+            0,
+            "depth {depth} not aligned"
+        );
         // within limit
         let payload_words = n * 2 * depth as usize / 32;
         let total_octets = (HEADER_WORDS as usize + payload_words) * 4;
-        assert!(total_octets <= MAX_PAYLOAD_OCTETS, "depth {depth} over limit");
+        assert!(
+            total_octets <= MAX_PAYLOAD_OCTETS,
+            "depth {depth} over limit"
+        );
         // one more aligned block would exceed the limit
         assert!(n > 0);
     }
@@ -265,7 +272,11 @@ fn segmented_encode_reassembles_bit_exact() {
         .collect();
 
     let packets = enc.encode_data_segmented(&samples, 0, 0).unwrap();
-    assert_eq!(packets.len(), 4, "3.5 packets' worth rounds up to 4 segments");
+    assert_eq!(
+        packets.len(),
+        4,
+        "3.5 packets' worth rounds up to 4 segments"
+    );
 
     let mut dec = Decoder::new();
     dec.set_bit_depth(0, depth);

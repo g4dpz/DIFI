@@ -15,7 +15,7 @@
 use std::panic;
 
 use difi::command::{action_mode, BufferState, Cam};
-use difi::constants::{command, information_class, packet_type, tsf, tsi, tsm};
+use difi::constants::{command, packet_type, tsf, tsi, tsm};
 use difi::iq::{pack_samples, payload_word_count, sample_range, unpack_samples};
 use difi::{
     Decoder, DifiPacket, FlowControlKind, Header, IqSample, SignalDataPacket, StreamEncoder,

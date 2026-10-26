@@ -4,8 +4,8 @@
 //! quantization loss, with transport/codec adding no error of their own.
 
 use difi::{
-    difi_to_float, float_to_difi, generate_signal, measure_implementation_loss,
-    ScalingConvention, SignalParams,
+    difi_to_float, float_to_difi, generate_signal, measure_implementation_loss, ScalingConvention,
+    SignalParams,
 };
 
 #[test]
@@ -20,8 +20,15 @@ fn generator_is_deterministic() {
         .iter()
         .map(|&(i, q)| ((i as f64).powi(2) + (q as f64).powi(2)).sqrt())
         .fold(0.0f64, f64::max);
-    assert!(max_mag <= p.peak as f64 + 1e-6, "peak {max_mag} exceeds {}", p.peak);
-    assert!(max_mag > 0.8 * p.peak as f64, "peak {max_mag} unexpectedly small");
+    assert!(
+        max_mag <= p.peak as f64 + 1e-6,
+        "peak {max_mag} exceeds {}",
+        p.peak
+    );
+    assert!(
+        max_mag > 0.8 * p.peak as f64,
+        "peak {max_mag} unexpectedly small"
+    );
 }
 
 #[test]
@@ -46,11 +53,18 @@ fn export_round_trip_within_documented_loss() {
         max_abs = max_abs.max(((rq - oq) as f64).abs());
     }
     assert_eq!(recovered.len(), original.len());
-    assert!(max_abs <= one_lsb, "max error {max_abs} exceeds 1 LSB {one_lsb}");
+    assert!(
+        max_abs <= one_lsb,
+        "max error {max_abs} exceeds 1 LSB {one_lsb}"
+    );
     assert!(
         (max_abs - mapper.max_abs_error).abs() < 1e-9,
         "end-to-end loss {max_abs} must equal mapper-only loss {}",
         mapper.max_abs_error
     );
-    assert!(mapper.snr_db > 70.0, "SNR {} dB too low for 16-bit", mapper.snr_db);
+    assert!(
+        mapper.snr_db > 70.0,
+        "SNR {} dB too low for 16-bit",
+        mapper.snr_db
+    );
 }

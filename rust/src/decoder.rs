@@ -34,8 +34,7 @@ fn classify(buf: &[u8]) -> Result<(u8, u16, u32)> {
     }
     let word0 = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
     let packet_type = ((word0 >> 28) & 0xF) as u8;
-    let oui =
-        u32::from_be_bytes([buf[8], buf[9], buf[10], buf[11]]) & 0x00FF_FFFF;
+    let oui = u32::from_be_bytes([buf[8], buf[9], buf[10], buf[11]]) & 0x00FF_FFFF;
     if oui != (VITA_OUI & 0x00FF_FFFF) {
         return Err(DifiError::BadOui {
             expected: VITA_OUI & 0x00FF_FFFF,
@@ -80,9 +79,9 @@ impl Decoder {
                 Ok(DifiPacket::SignalContext(ctx))
             }
             // Version Context: VRT type 0x5.
-            t if t == version_packet_type::VERSION_CONTEXT => {
-                Ok(DifiPacket::VersionContext(VersionContextPacket::unpack(buf)?))
-            }
+            t if t == version_packet_type::VERSION_CONTEXT => Ok(DifiPacket::VersionContext(
+                VersionContextPacket::unpack(buf)?,
+            )),
             // Timing Flow Control: VRT type 0x6 (Command). Decoded BEFORE the Signal Data
             // bit-depth gate below — flow-control packets carry no sample bit depth and
             // must decode regardless of whether a Signal Context has been seen for the
@@ -95,11 +94,13 @@ impl Decoder {
                     DifiError::Invalid {
                         field: "bit_depth",
                         detail: format!(
-                            "no Signal Context seen for stream 0x{stream_id:08X}; cannot decode data"
-                        ),
+                        "no Signal Context seen for stream 0x{stream_id:08X}; cannot decode data"
+                    ),
                     },
                 )?;
-                Ok(DifiPacket::SignalData(SignalDataPacket::unpack(buf, bit_depth)?))
+                Ok(DifiPacket::SignalData(SignalDataPacket::unpack(
+                    buf, bit_depth,
+                )?))
             }
             other => Err(DifiError::BadPacketType { actual: other }),
         }

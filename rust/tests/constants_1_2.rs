@@ -62,7 +62,10 @@ fn difi_1_2_command_and_buffer_status() {
 fn class_and_type_namespaces_are_distinct_but_consistent() {
     // Packet Class 0x0004 (Version Context, low 16 bits) and Information Class 0x0004
     // (Basic Data Plane 2, high 16 bits) intentionally share the number 4.
-    assert_eq!(packet_class::VERSION_CONTEXT, information_class::BASIC_DATA_PLANE_2);
+    assert_eq!(
+        packet_class::VERSION_CONTEXT,
+        information_class::BASIC_DATA_PLANE_2
+    );
     // The three VRT packet types we now handle are distinct.
     assert_ne!(packet_type::SIGNAL_DATA, packet_type::CONTEXT);
     assert_ne!(packet_type::CONTEXT, packet_type::COMMAND);

@@ -35,7 +35,13 @@ fn regenerate_matches_manifest_sha256() {
 fn manifest_json_records_required_fields() {
     let params = SignalParams::default();
     let raw = encode_cf32(&generate_signal(&params));
-    let m = build_manifest("afs-style", &raw, params, difi_ctx(), "difi-tool generate work");
+    let m = build_manifest(
+        "afs-style",
+        &raw,
+        params,
+        difi_ctx(),
+        "difi-tool generate work",
+    );
     let json = m.to_json();
 
     // Req 6.2: SHA-256, size, sample format, DIFI context params, regen command.

@@ -19,8 +19,14 @@ fn sample_count_data_round_trips_with_sample_count_tsf() {
     dec.set_bit_depth(0x0000_0042, 16);
     match dec.decode(&bytes).unwrap() {
         DifiPacket::SignalData(d) => {
-            assert_eq!(d.header.packet_class, packet_class::SAMPLE_COUNT_SIGNAL_DATA);
-            assert_eq!(d.header.information_class, information_class::DATA_PLANE_FLOW_CONTROL);
+            assert_eq!(
+                d.header.packet_class,
+                packet_class::SAMPLE_COUNT_SIGNAL_DATA
+            );
+            assert_eq!(
+                d.header.information_class,
+                information_class::DATA_PLANE_FLOW_CONTROL
+            );
             assert_eq!(d.header.tsf, tsf::SAMPLE_COUNT);
             assert_eq!(d.header.fractional_seconds, 4096); // sample count, not ps
             assert_eq!(d.samples, samples);
@@ -39,8 +45,14 @@ fn sample_count_context_round_trips_and_seeds_bit_depth() {
     let mut dec = Decoder::new();
     match dec.decode(&bytes).unwrap() {
         DifiPacket::SignalContext(c) => {
-            assert_eq!(c.header.packet_class, packet_class::SAMPLE_COUNT_SIGNAL_CONTEXT);
-            assert_eq!(c.header.information_class, information_class::DATA_PLANE_FLOW_CONTROL);
+            assert_eq!(
+                c.header.packet_class,
+                packet_class::SAMPLE_COUNT_SIGNAL_CONTEXT
+            );
+            assert_eq!(
+                c.header.information_class,
+                information_class::DATA_PLANE_FLOW_CONTROL
+            );
             assert_eq!(c.header.tsf, tsf::SAMPLE_COUNT);
             assert_eq!(c.data_format.bit_depth, 12);
             assert!((c.sample_rate_hz - 30.72e6).abs() < 1.0);
@@ -60,7 +72,10 @@ fn sample_count_context_round_trips_and_seeds_bit_depth() {
     let data = enc2
         .encode_data_sample_count(&four, 1_700_000_000, 1)
         .unwrap();
-    assert!(matches!(dec.decode(&data).unwrap(), DifiPacket::SignalData(_)));
+    assert!(matches!(
+        dec.decode(&data).unwrap(),
+        DifiPacket::SignalData(_)
+    ));
 }
 
 #[test]
@@ -68,7 +83,9 @@ fn sample_count_context_wire_layout_matches_standard_context() {
     // The sample-count context (0x0003) must be byte-identical to the standard context
     // (0x0001) except for the class code (word 3 low 16 bits) and the TSF nibble (word 0).
     let enc = StreamEncoder::new(0x0000_0044, 8);
-    let std = enc.encode_context(1e9, 1e6, 2e6, 0.0, 1_700_000_000, 0).unwrap();
+    let std = enc
+        .encode_context(1e9, 1e6, 2e6, 0.0, 1_700_000_000, 0)
+        .unwrap();
     let sc = enc
         .encode_context_sample_count(1e9, 1e6, 2e6, 0.0, 1_700_000_000, 0)
         .unwrap();
@@ -89,7 +106,9 @@ fn sample_count_context_wire_layout_matches_standard_context() {
 fn standard_flow_1_1_context_still_decodes_unchanged() {
     // Regression: the relaxed class check must not change 1.1 behaviour.
     let enc = StreamEncoder::new(0x0000_0045, 16);
-    let bytes = enc.encode_context(1e9, 1e6, 2e6, 0.0, 1_700_000_000, 0).unwrap();
+    let bytes = enc
+        .encode_context(1e9, 1e6, 2e6, 0.0, 1_700_000_000, 0)
+        .unwrap();
     let mut dec = Decoder::new();
     match dec.decode(&bytes).unwrap() {
         DifiPacket::SignalContext(c) => {

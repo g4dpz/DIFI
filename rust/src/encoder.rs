@@ -4,7 +4,9 @@
 use crate::constants::*;
 use crate::error::Result;
 use crate::iq::IqSample;
-use crate::packet::{DataFormat, Header, SignalContextPacket, SignalDataPacket, VersionContextPacket};
+use crate::packet::{
+    DataFormat, Header, SignalContextPacket, SignalDataPacket, VersionContextPacket,
+};
 
 /// Stateful encoder for one DIFI stream (one Stream ID).
 ///

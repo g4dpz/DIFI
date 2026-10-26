@@ -246,17 +246,21 @@ impl SignalContextPacket {
         out.extend_from_slice(&cif0.to_be_bytes());
         out.extend_from_slice(&context::REF_POINT.to_be_bytes());
         // bandwidth(u64 scaled), ifFreq(i64), rfFreq(i64), ifBandOffset(i64)
-        out.extend_from_slice(&(to_fixed_i64(self.bandwidth_hz, scale::RADIX_20) as u64).to_be_bytes());
+        out.extend_from_slice(
+            &(to_fixed_i64(self.bandwidth_hz, scale::RADIX_20) as u64).to_be_bytes(),
+        );
         out.extend_from_slice(&to_fixed_i64(self.if_reference_hz, scale::RADIX_20).to_be_bytes());
         out.extend_from_slice(&to_fixed_i64(self.rf_reference_hz, scale::RADIX_20).to_be_bytes());
         out.extend_from_slice(&0i64.to_be_bytes()); // ifBandOffset
-        // refLevel1, refLevel2, stage1GainAtten, stage2GainAtten (i16 scaled)
+                                                    // refLevel1, refLevel2, stage1GainAtten, stage2GainAtten (i16 scaled)
         out.extend_from_slice(&0i16.to_be_bytes());
         out.extend_from_slice(&0i16.to_be_bytes());
         out.extend_from_slice(&to_fixed_i16(self.gain_db, scale::RADIX_7).to_be_bytes());
         out.extend_from_slice(&0i16.to_be_bytes());
         // sampleRate(u64 scaled)
-        out.extend_from_slice(&(to_fixed_i64(self.sample_rate_hz, scale::RADIX_20) as u64).to_be_bytes());
+        out.extend_from_slice(
+            &(to_fixed_i64(self.sample_rate_hz, scale::RADIX_20) as u64).to_be_bytes(),
+        );
         // timeStampAdj(i64), timeStampCal(u32)
         out.extend_from_slice(&0i64.to_be_bytes());
         out.extend_from_slice(&0u32.to_be_bytes());
@@ -382,13 +386,10 @@ impl VersionContextPacket {
         out.extend_from_slice(&cif0.to_be_bytes());
         out.extend_from_slice(&version::CIF1.to_be_bytes());
         out.extend_from_slice(&version::V49_SPEC_VERSION.to_be_bytes());
-        // versionInfo: year(7, since 2000) day(9) revision(6=1) type(4=0) icdVersion(6=0)
+        // versionInfo: year(7, since 2000) day(9) revision(6=1) type(4=0) icdVersion(6=0).
+        // The type and icdVersion fields are 0, so they contribute nothing to the word.
         let year_field = (self.year as i32 - 2000).clamp(0, 127) as u32;
-        let version_info = (year_field << 25)
-            | ((self.day as u32 & 0x1FF) << 16)
-            | (1u32 << 10) // revision = 1
-            | (0u32 << 6)  // type = 0
-            | 0u32; // icdVersion = 0
+        let version_info = (year_field << 25) | ((self.day as u32 & 0x1FF) << 16) | (1u32 << 10); // revision = 1
         out.extend_from_slice(&version_info.to_be_bytes());
         debug_assert_eq!(out.len(), version::WORDS as usize * 4);
         Ok(out)
@@ -468,4 +469,3 @@ fn read_i64(buf: &[u8], off: usize) -> i64 {
 fn read_i16(buf: &[u8], off: usize) -> i16 {
     i16::from_be_bytes([buf[off], buf[off + 1]])
 }
-

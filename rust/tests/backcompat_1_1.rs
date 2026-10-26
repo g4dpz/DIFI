@@ -111,10 +111,14 @@ fn golden_signal_data_decodes_to_documented_samples() {
 fn golden_packets_keep_their_1_1_classes() {
     let mut dec = Decoder::new();
     dec.set_bit_depth(0x1234_5678, 16);
-    let ctx = dec.decode(&read_golden("signal_context_16bit.difi.bin")).unwrap();
+    let ctx = dec
+        .decode(&read_golden("signal_context_16bit.difi.bin"))
+        .unwrap();
     assert!(matches!(ctx, DifiPacket::SignalContext(ref c)
         if c.header.packet_class == packet_class::SIGNAL_CONTEXT));
-    let data = dec.decode(&read_golden("signal_data_16bit.difi.bin")).unwrap();
+    let data = dec
+        .decode(&read_golden("signal_data_16bit.difi.bin"))
+        .unwrap();
     assert!(matches!(data, DifiPacket::SignalData(ref d)
         if d.header.packet_class == packet_class::SIGNAL_DATA));
 }
