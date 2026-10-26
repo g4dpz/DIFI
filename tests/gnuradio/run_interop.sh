@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # GNU Radio <-> difi-interop interop test (Route 1).
 #
 # Puts GNU Radio's runtime and its UDP block (network.socket_pdu) in the path, in both

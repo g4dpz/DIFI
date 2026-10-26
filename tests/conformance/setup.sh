@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Set up the DIFI conformance oracle.
 #
 # The oracle validates our packets against the DIFI Consortium's OWN reference packet

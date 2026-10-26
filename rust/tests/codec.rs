@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Unit + integration tests for the DIFI 1.1 Rust codec (spec tasks 2–7).
 
 use difi::constants::*;

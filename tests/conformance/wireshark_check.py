@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """DIFI Wireshark dissector conformance check (spec task 10 / Req 3.1).
 
 Validates that our packets parse cleanly in the **DIFI Consortium Wireshark dissector**

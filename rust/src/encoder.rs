@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! DIFI Encoder — builds valid packets and maintains the mod-16 stream sequence number.
 
 use crate::constants::*;

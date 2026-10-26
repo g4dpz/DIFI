@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // difi/difi.hpp — reference DIFI 1.1 I/Q codec (independent C++ implementation).
 //
 // A strict, fail-closed encoder/decoder for the DIFI 1.1 profile of VITA 49.2

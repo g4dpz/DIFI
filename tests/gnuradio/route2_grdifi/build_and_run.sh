@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Route 2: compile the gr-difi C++ flowgraphs and run interop against our difi-tool.
 #
 # Requires gr-difi already built+installed into work/gr-difi/install (see README.md and

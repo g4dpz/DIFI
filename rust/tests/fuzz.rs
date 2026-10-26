@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Property + fuzz hardening (spec task 14 / strengthens Req 1.4, 1.5).
 //!
 //! 1. Property: random *valid* configs round-trip bit-exact (encode -> decode).

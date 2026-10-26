@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! DIFI 1.1 packet model: Signal Data, Signal Context, Version Context.
 //!
 //! All multi-byte fields are big-endian and 32-bit-word aligned (primer section 3).

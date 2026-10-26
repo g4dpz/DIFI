@@ -94,6 +94,10 @@ golden packets, and host large canonical datasets externally by checksum. See
 
 ## Licence
 
-TBD (intended to be open, compatible with contribution to the ESA community hub).
+Licensed under the **Apache License, Version 2.0** — see [`LICENSE`](LICENSE) and
+[`NOTICE`](NOTICE). Apache-2.0 is permissive and compatible with contribution to the ESA
+community hub.
+
 Note: `tests/conformance/` and `tests/gnuradio/` *fetch* third-party DIFI Consortium /
-gr-difi code on demand into a gitignored dir; that code is **not** redistributed here.
+gr-difi code on demand into a gitignored dir; that code is **not** redistributed here and
+remains under its own licence (see `NOTICE`).

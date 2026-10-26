@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // gr-difi receiver flowgraph (Route 2): uses gr-difi's OWN difi_source_cpp block to
 // decode DIFI packets sent by our difi-tool export, and counts recovered samples.
 //

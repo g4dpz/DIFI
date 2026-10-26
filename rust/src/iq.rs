@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! I/Q sample (un)packing for signed-integer bit depths 4..=16.
 //!
 //! DIFI carries complex Cartesian I/Q as signed integers with a selectable bit depth

@@ -3,7 +3,7 @@ name = "difi"
 version = "0.1.0"
 edition = "2021"
 description = "Reference DIFI 1.1 (IEEE-ISTO Std 4900-2021) I/Q codec — independent Rust implementation"
-license = "MIT OR Apache-2.0"
+license = "Apache-2.0"
 
 [lib]
 name = "difi"

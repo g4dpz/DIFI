@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Unit tests for the DIFI 1.1 C++ codec (mirrors rust/tests/codec.rs).
 // Minimal dependency-free harness: each CHECK records pass/fail; main returns nonzero
 // if any failed.

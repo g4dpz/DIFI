@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Shared helpers for the GNU Radio <-> difi-interop interop test (Route 1).
 
 Reproduces the SAME reference signal and float->DIFI-integer mapping as the Rust/C++

@@ -1,0 +1,26 @@
+DIFI I/Q Interoperability Toolkit
+Copyright 2026 David Johnson
+
+This product is licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License. You may obtain
+a copy of the License in the LICENSE file or at:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+---
+
+Third-party components (NOT distributed with this project):
+
+This toolkit validates against, and interoperates with, third-party DIFI tooling
+that it does NOT redistribute. Those components are fetched on demand into a
+gitignored working directory and remain under their own licences:
+
+  - DIFI Consortium "DIFI-Certification" packet definitions and Wireshark
+    dissector (https://github.com/DIFI-Consortium/DIFI-Certification) — fetched
+    by tests/conformance/setup.sh.
+  - gr-difi, GNU Radio DIFI Source/Sink blocks, GPL-3.0
+    (https://github.com/DIFI-Consortium/gr-difi) — built from source by the user
+    per tests/gnuradio/route2_grdifi/.
+
+No third-party source is included in this repository; see the respective
+upstream projects for their licences.

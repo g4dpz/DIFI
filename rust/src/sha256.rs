@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Minimal, dependency-free SHA-256 (FIPS 180-4) for signal manifests.
 //!
 //! The toolkit avoids external crates; this is a small, self-contained implementation

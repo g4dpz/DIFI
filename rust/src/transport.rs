@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! UDP transport for DIFI packets (spec task 9 / Req 5).
 //!
 //! The transport is deliberately decoupled from the packet model: it moves opaque

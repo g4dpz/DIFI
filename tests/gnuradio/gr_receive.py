@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """GNU Radio receiver for the interop test (ours -> GNU Radio).
 
 A GNU Radio flowgraph receives DIFI datagrams on UDP via `network.socket_pdu`, parses

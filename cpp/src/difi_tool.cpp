@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // difi-tool — minimal CLI for cross-implementation interop (C++ side).
 //
 // Subcommands mirror the Rust tool exactly so the two implementations can exchange

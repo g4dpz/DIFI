@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """DIFI conformance oracle (spec task 10 / Req 3.2).
 
 Validates packets produced by our implementations against the DIFI Consortium's own

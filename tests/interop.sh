@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Cross-implementation interop check.
 #
 # Proves the two independent implementations agree on the DIFI 1.1 wire format:

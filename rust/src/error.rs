@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Typed, field-level errors. The decoder is fail-closed: every DIFI-profile
 //! violation produces a precise error rather than a best-effort mis-parse.
 

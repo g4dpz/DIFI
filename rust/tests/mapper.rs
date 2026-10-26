@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Sample-mapper tests (spec task 8 / Req 4): deterministic float↔integer mapping and
 //! measured round-trip loss.
 

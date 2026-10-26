@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """GNU Radio sender for the interop test (GNU Radio -> ours).
 
 A GNU Radio flowgraph builds DIFI Signal Data packets (DIFI Consortium reference

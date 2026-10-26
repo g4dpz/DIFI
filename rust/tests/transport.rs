@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! UDP transport tests (spec task 9 / Req 5): loopback exchange and Stream-ID filtering.
 
 use std::thread;

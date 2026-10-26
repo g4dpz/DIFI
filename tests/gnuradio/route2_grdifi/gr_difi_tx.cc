@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // gr-difi transmitter flowgraph (Route 2): uses gr-difi's OWN difi_sink_cpp block to
 // encode a signal to DIFI and stream it over UDP to our difi-tool import.
 //

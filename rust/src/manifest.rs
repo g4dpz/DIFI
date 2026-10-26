@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Signal manifest writer (spec task 11 / Req 6.2, 6.4).
 //!
 //! A manifest records everything needed to reproduce and verify a reference signal

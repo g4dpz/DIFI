@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Deterministic reference-signal generator (spec task 11 seed / Req 6.1).
 //!
 //! Large raw I/Q is never committed (artifact policy); instead a signal is reproduced

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Signal manifest tests (spec task 11 / Req 6.1, 6.2): the generator is reproducible
 //! and the manifest's SHA-256 matches a fresh regeneration.
 

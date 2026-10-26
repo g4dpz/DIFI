@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! DIFI Decoder — classifies raw bytes into the packet model, fail-closed.
 //!
 //! A real receiver learns the sample bit depth from a Signal Context packet before it

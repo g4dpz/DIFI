@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! DIFI 1.1 wire-level constants (IEEE-ISTO Std 4900-2021).
 //!
 //! These values MUST be identical across every independent implementation of this

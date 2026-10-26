@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! End-to-end export/import tests (spec task 12 / Req 7.1): a reference signal mapped
 //! to DIFI integer, encoded, and round-tripped recovers within the documented
 //! quantization loss, with transport/codec adding no error of their own.

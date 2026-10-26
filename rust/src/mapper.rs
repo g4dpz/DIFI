@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Sample Mapper — float ↔ DIFI signed-integer conversion (spec task 8 / Req 4).
 //!
 //! DIFI carries signed-integer I/Q; existing reference signals (e.g. the competition

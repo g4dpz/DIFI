@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Cross-decode against a second independent DIFI implementation (spec task 13 / Req 7.2, 7.3).
 
 The "second implementation" here is the DIFI Consortium's own reference code — its
