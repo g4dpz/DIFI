@@ -143,7 +143,7 @@ The authoritative Command-Packet layout is in the gitignored transcription
   - _Requirements: 7.2, 7.5_
   - _Files: signal manifest, `docs/`, relevant spec note._
 
-- [ ] 11. Close 1.1 gap — gr-difi end-to-end loss (or precise limitation)
+- [x] 11. Close 1.1 gap — gr-difi end-to-end loss (or precise limitation)
   - Either add an end-to-end loss round-trip with gr-difi that reconciles its own scaling,
     or document precisely what is and is not verified (packet/sample-count level vs
     end-to-end loss), replacing the implied-full claim. Record under `docs/interop/`.
