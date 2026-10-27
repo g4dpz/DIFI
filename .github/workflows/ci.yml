@@ -1,0 +1,91 @@
+# SPDX-License-Identifier: Apache-2.0
+# Continuous integration for the DIFI I/Q interoperability toolkit.
+#
+# Runs the same checks the project verifies by hand per task: Rust (fmt/clippy/test),
+# C++ (build + ctest), the C++ sanitizer build (ASan+UBSan — this is what caught a real
+# use-after-free), and the cross-implementation interop script. gr-difi (GNU Radio) is
+# intentionally NOT run in CI: it needs platform build patches and has a flaky sink;
+# interop.sh self-skips it. The external DIFI Consortium conformance oracle (reference
+# definitions + Wireshark dissector) is run by hand via tests/conformance/, not in CI:
+# it fetches third-party definitions over the network and took ~10 min per run. Restore
+# it here (with apt/venv caching) once it is proven fast and stable on CI.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust (fmt, clippy, test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.90.0"
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Format check
+        run: cargo fmt --check
+      - name: Clippy (deny warnings)
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --all-targets
+
+  cpp:
+    name: C++ (build, ctest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build cpp/build
+      - name: Test
+        run: ctest --test-dir cpp/build --output-on-failure
+
+  cpp-sanitizers:
+    name: C++ sanitizers (ASan + UBSan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (sanitizers)
+        run: cmake -S cpp -B cpp/build-san -DDIFI_SANITIZE=ON -DCMAKE_BUILD_TYPE=Debug
+      - name: Build
+        run: cmake --build cpp/build-san
+      - name: Run tests under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+        run: ctest --test-dir cpp/build-san --output-on-failure
+
+  interop:
+    name: Cross-implementation interop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.90.0"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Build Rust tool
+        run: cargo build --bin difi-tool --manifest-path rust/Cargo.toml
+      - name: Build C++ tool
+        run: cmake -S cpp -B cpp/build && cmake --build cpp/build --target difi-tool
+      - name: Interop (core sections; conformance/Wireshark/gr-difi self-skip)
+        run: ./tests/interop.sh

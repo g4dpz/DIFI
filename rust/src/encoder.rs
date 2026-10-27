@@ -4,7 +4,9 @@
 use crate::constants::*;
 use crate::error::Result;
 use crate::iq::IqSample;
-use crate::packet::{DataFormat, Header, SignalContextPacket, SignalDataPacket, VersionContextPacket};
+use crate::packet::{
+    DataFormat, Header, SignalContextPacket, SignalDataPacket, VersionContextPacket,
+};
 
 /// Stateful encoder for one DIFI stream (one Stream ID).
 ///
@@ -83,6 +85,36 @@ impl StreamEncoder {
         Ok(bytes)
     }
 
+    /// Encode a DIFI 1.2 **Sample Count** Signal Data packet (`0x0002`): identical layout
+    /// to [`encode_data`], but Packet Class `0x0002`, Information Class
+    /// "Data Plane plus Flow Control", and TSF = sample count, with `fractional`
+    /// carrying a sample count rather than picoseconds. Advances the mod-16 sequence.
+    pub fn encode_data_sample_count(
+        &mut self,
+        samples: &[IqSample],
+        integer_seconds: u32,
+        fractional_sample_count: u64,
+    ) -> Result<Vec<u8>> {
+        let mut header = self.header(
+            packet_type::SIGNAL_DATA,
+            tsm::DATA,
+            information_class::DATA_PLANE_FLOW_CONTROL,
+            packet_class::SAMPLE_COUNT_SIGNAL_DATA,
+            self.seq,
+            integer_seconds,
+            fractional_sample_count,
+        );
+        header.tsf = tsf::SAMPLE_COUNT;
+        let pkt = SignalDataPacket {
+            header,
+            bit_depth: self.bit_depth,
+            samples: samples.to_vec(),
+        };
+        let bytes = pkt.pack()?;
+        self.seq = (self.seq + 1) & 0xF;
+        Ok(bytes)
+    }
+
     /// Largest number of complex samples that fit in one Signal Data packet at this
     /// bit depth, respecting the DIFI max payload (Req 2.5) and 32-bit-word alignment.
     ///
@@ -148,6 +180,46 @@ impl StreamEncoder {
             integer_seconds,
             fractional_ps,
         );
+        SignalContextPacket {
+            header,
+            context_changed: true,
+            rf_reference_hz,
+            if_reference_hz: 0.0,
+            bandwidth_hz,
+            sample_rate_hz,
+            gain_db,
+            data_format: DataFormat {
+                bit_depth: self.bit_depth,
+            },
+        }
+        .pack()
+    }
+
+    /// Encode a DIFI 1.2 **Sample Count** Signal Context packet (`0x0003`): identical
+    /// layout to [`encode_context`], but Packet Class `0x0003`, Information Class
+    /// "Data Plane plus Flow Control", and TSF = sample count.
+    #[allow(clippy::too_many_arguments)]
+    pub fn encode_context_sample_count(
+        &self,
+        rf_reference_hz: f64,
+        bandwidth_hz: f64,
+        sample_rate_hz: f64,
+        gain_db: f64,
+        integer_seconds: u32,
+        fractional_sample_count: u64,
+    ) -> Result<Vec<u8>> {
+        let mut header = self.header(
+            packet_type::CONTEXT,
+            // Per the v1.2.1 reference, Packet Class 0x0003 requires TSM=0 (fine), unlike
+            // the standard-flow context (0x0001) which uses TSM=1.
+            tsm::DATA,
+            information_class::DATA_PLANE_FLOW_CONTROL,
+            packet_class::SAMPLE_COUNT_SIGNAL_CONTEXT,
+            0,
+            integer_seconds,
+            fractional_sample_count,
+        );
+        header.tsf = tsf::SAMPLE_COUNT;
         SignalContextPacket {
             header,
             context_changed: true,

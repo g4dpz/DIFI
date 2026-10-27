@@ -29,17 +29,32 @@ recorded here; see `tasks.md` and `IMPLEMENTATIONS.md` for the implementing work
   and gives a compiled core for the eventual HITL/throughput work. They validate against
   each other, the DIFI Consortium reference, and gr-difi. A Python reference could still
   be added later as a third implementation checked against the same golden packets.
-- **DQ-2 Sample bit depth + scaling — RESOLVED (with a caveat): 16-bit signed,
-  full-scale = 2^(n-1)-1.** `float→int = round(clamp(x/full_scale, -1, 1) · FS)`,
-  round-half-away-from-zero, saturating; `full_scale` recorded in the manifest.
-  **Caveat (Req 4.3):** the convention is documented and pinned but **not yet reconciled
-  against the DIFI MILCOM reference-gain/scaling guidance** — open follow-up.
-- **DQ-3 DIFI version — RESOLVED: 1.1 only.** 1.2.1 (flow control, command packets)
-  remains a future increment; the packet-type/class handling leaves room for it.
-- **DQ-4 Canonical dataset hosting — OPEN.** The manifest records a SHA-256 so large data
-  can be hosted externally (Zenodo vs Release assets), but no real canonical dataset is
-  wired up yet; the committed reference is a reproducible LSIS-AFS-*style* waveform, not
-  a real LSIS-AFS vector. Policy question, not code.
+- **DQ-2 Sample bit depth + scaling — RESOLVED: 16-bit signed, full-scale = 2^(n-1)-1.**
+  `float→int = round(clamp(x/full_scale, -1, 1) · FS)`, round-half-away-from-zero,
+  saturating; `full_scale` recorded in the manifest. **Reconciled against the DIFI MILCOM
+  "Reference Gain and Scaling" guidance** in the `difi-1.2-dataplane` feature (task 9 /
+  Req 4.3): the context Reference Level / Scaling / Gain fields are conformant (emitted as
+  zeros, verified against the reference + dissector); the quantization denominator differs
+  from the standard's digital full-scale `2^(n-1)` by a deliberate, documented sub-LSB
+  (−0.00027 dB at 16-bit), kept for I/Q symmetry and all-codes-reachable, with
+  `difi_full_scale_code()` exposing the standard's reference. See
+  `docs/REFERENCE-GAIN-SCALING-RECONCILIATION.md`.
+- **DQ-3 DIFI version — RESOLVED for this feature: 1.1.** This `difi-iq-interop` feature
+  implements the DIFI 1.1 data plane; the packet-type/class handling deliberately leaves
+  room for later versions. The version target of the *toolkit as a whole* has since
+  advanced beyond 1.1: ESA's ESTRACK will use **DIFI 1.3.0**, and two follow-on features
+  now carry the toolkit there — `difi-1.2-dataplane` (the 1.2 flow-control / sample-count
+  data plane and the shared Command-Packet core) and `difi-link-establishment-1.3.0` (the
+  1.3.0 control plane). Build order: 1.1 (this feature, shipped) → 1.2 → 1.3.0 = full DIFI
+  1.3.0. So "1.1 only" describes this feature's scope, not a decision to stop at 1.1.
+- **DQ-4 Canonical dataset hosting — RESOLVED** (in the `difi-1.2-dataplane` feature,
+  task 10). Decision: the committed reference is the reproducible, generator-backed
+  `afs-style-tone-4096` waveform (no external host needed — it is regenerated identically
+  on demand); external hosting by SHA-256 (Zenodo or a Release asset) is the documented,
+  ready mechanism for a real canonical vector when one is contributed, not wired up now
+  because no real vector is in hand. The manifest's `sha256` + `byte_size` is the binding
+  hosting contract; adding a real vector is purely additive. Rationale and procedure:
+  `docs/DATASET-HOSTING-DECISION.md`.
 
 These map to the "Open questions" in the primer and the proposal email.
 
@@ -113,8 +128,9 @@ Deterministic quantization with an explicit, documented scaling/reference-level
 convention (DQ-2). Provides `float_to_difi(iq, convention)` and the inverse (the
 convention carries bit depth + full-scale), and a `measure_implementation_loss()` helper
 that reports round-trip error (Req 4.2) — never assumes lossless. The convention is
-written into the signal manifest. *Caveat: not yet reconciled against the DIFI MILCOM
-reference-gain guidance (Req 4.3).*
+written into the signal manifest. *Reconciled against the DIFI MILCOM reference-gain
+guidance (Req 4.3) in the `difi-1.2-dataplane` feature — see DQ-2 above and
+`docs/REFERENCE-GAIN-SCALING-RECONCILIATION.md`.*
 
 ### 5. Transport
 - **UDP** sender/receiver (the DIFI-standard transport, Req 5.1). *As built.*

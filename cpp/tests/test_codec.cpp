@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <fstream>
 #include <functional>
 #include <string>
 #include <thread>
@@ -209,6 +210,21 @@ static void test_mapper_loss_measured() {
   CHECK(report.snr_db > 60.0);
 }
 
+// DIFI "Reference Gain and Scaling" reconciliation (Req 4.3): R = 2^(n-1), one above the
+// max positive code. Mirrors rust mapper test difi_full_scale_reconciliation.
+static void test_mapper_difi_full_scale() {
+  for (uint8_t depth : {uint8_t(4), uint8_t(8), uint8_t(12), uint8_t(16)}) {
+    ScalingConvention conv(depth, 1.0);
+    int32_t r = conv.difi_full_scale_code();
+    CHECK(r == (1 << (depth - 1)));
+    CHECK(r == conv.fs_code() + 1);
+  }
+  ScalingConvention c16(16, 1.0);
+  double diff_db = 20.0 * std::log10(static_cast<double>(c16.fs_code()) /
+                                     static_cast<double>(c16.difi_full_scale_code()));
+  CHECK(std::abs(diff_db) < 0.001);
+}
+
 static void test_mapper_rejects_bad_depth() {
   CHECK(throws([] { ScalingConvention(3, 1.0); }));
   CHECK(throws([] { ScalingConvention(17, 1.0); }));
@@ -351,7 +367,8 @@ static void test_fuzz_decoder_never_crashes() {
       // Accidentally-valid packet: must be a known kind.
       if (!(pkt.kind == PacketKind::SignalData ||
             pkt.kind == PacketKind::SignalContext ||
-            pkt.kind == PacketKind::VersionContext)) {
+            pkt.kind == PacketKind::VersionContext ||
+            pkt.kind == PacketKind::TimingFlowControl)) {
         all_ok = false;
         std::printf("FAIL: decode returned unknown kind at it=%d\n", it);
         break;
@@ -367,7 +384,401 @@ static void test_fuzz_decoder_never_crashes() {
   CHECK(all_ok);
 }
 
+// DIFI 1.2 command/flow-control hardening (spec difi-1.2-dataplane task 13). Mirrors the
+// Rust fuzz.rs property_flow_control_round_trips_bit_exact + fuzz_flow_control_*.
+static void test_flow_control_property_and_fuzz() {
+  namespace c = difi::constants;
+  // Property: random valid flow-control packets round-trip bit-exact.
+  Rng rng(0xF10C2222ull);
+  bool all_ok = true;
+  for (int it = 0; it < 5000; ++it) {
+    FlowControlKind kind =
+        (rng.below(2) == 0) ? FlowControlKind::SampleCount : FlowControlKind::RealTime;
+    TimingFlowControlPacket p{};
+    p.header.packet_type = c::packet_type::COMMAND;
+    p.header.class_id_present = true;
+    p.header.tsm = c::tsm::DATA;
+    p.header.tsi = c::tsi::UTC;
+    p.header.tsf = flow_control_tsf(kind);
+    p.header.seq_num = static_cast<uint8_t>(rng.below(16));
+    p.header.stream_id = static_cast<uint32_t>(rng.next());
+    p.header.information_class = flow_control_information_class(kind);
+    p.header.packet_class = flow_control_packet_class(kind);
+    p.header.integer_seconds = static_cast<uint32_t>(rng.next());
+    p.header.fractional_seconds = rng.next();
+    p.kind = kind;
+    p.cam.controllee_id_present = true;
+    p.cam.controller_id_present = true;
+    p.cam.action_mode = difi::command::action_mode::EXECUTE;
+    p.message_id = static_cast<uint32_t>(rng.next());
+    p.controllee_id = static_cast<uint32_t>(rng.next());
+    p.controller_id = static_cast<uint32_t>(rng.next());
+    p.reference_point = c::command::REF_POINT;
+    p.sample_rate_hz = static_cast<double>(rng.below(6000000000ull));
+    p.timestamp_adjust_fs = rng.range_i32(-1000000, 1000000);
+    p.buffer.size_bytes = rng.next();
+    p.buffer.overflow = rng.below(2) == 1;
+    p.buffer.near_full = rng.below(2) == 1;
+    p.buffer.near_empty = rng.below(2) == 1;
+    p.buffer.underflow = rng.below(2) == 1;
+    p.buffer.level = static_cast<uint16_t>(rng.next()) & 0x0FFF;  // 12-bit fill level
+    auto bytes = p.pack();
+    auto back = TimingFlowControlPacket::unpack(bytes);
+    if (!(back == p)) {
+      all_ok = false;
+      std::printf("FAIL flow-control round-trip at it=%d\n", it);
+      break;
+    }
+  }
+  CHECK(all_ok);
+
+  // Fuzz: random command-ish buffers must only ever throw DifiError, never crash.
+  Rng frng(0xF10CDEADBEEF0001ull);
+  bool fuzz_ok = true;
+  for (int it = 0; it < FUZZ_ITERS; ++it) {
+    size_t len = (frng.below(120) / 4) * 4;
+    std::vector<uint8_t> buf(len);
+    for (auto& b : buf) b = static_cast<uint8_t>(frng.next());
+    if ((frng.next() & 1) && buf.size() >= 16) {
+      uint32_t words = static_cast<uint32_t>(buf.size() / 4) & 0xFFFF;
+      uint32_t word0 = (uint32_t(c::packet_type::COMMAND) << 28) | 0x08000000u | words;
+      buf[0] = uint8_t(word0 >> 24); buf[1] = uint8_t(word0 >> 16);
+      buf[2] = uint8_t(word0 >> 8);  buf[3] = uint8_t(word0);
+      buf[8] = 0x00; buf[9] = 0x6A; buf[10] = 0x62; buf[11] = 0x1E;
+      uint16_t cls = (frng.next() & 1) ? 0x0005 : 0x0006;
+      buf[14] = uint8_t(cls >> 8); buf[15] = uint8_t(cls);
+    }
+    try {
+      TimingFlowControlPacket::unpack(buf);
+    } catch (const DifiError&) {
+    } catch (const std::exception& e) {
+      fuzz_ok = false;
+      std::printf("FAIL: flow-control unpack non-DifiError at it=%d: %s\n", it, e.what());
+      break;
+    }
+    try {
+      Decoder dec;
+      dec.decode(buf);
+    } catch (const DifiError&) {
+    } catch (const std::exception& e) {
+      fuzz_ok = false;
+      std::printf("FAIL: decoder non-DifiError on command bytes at it=%d: %s\n", it, e.what());
+      break;
+    }
+  }
+  CHECK(fuzz_ok);
+}
+
+// Shared Command-Packet core — spec difi-1.2-dataplane task 2. Mirrors the
+// rust/src/command.rs unit tests; the two implementations MUST agree bit-for-bit.
+static void test_command_core() {
+  using namespace difi::command;
+  // CAM round-trip preserves all bits, including reserved ones we don't model.
+  for (uint32_t word : {0x00000000u, 0xFFFFFFFFu, 0xA1100000u, 0x12345678u, 0x80000000u}) {
+    CHECK(Cam::from_word(word).to_word() == word);
+  }
+  // CAM fields map to the right bits.
+  Cam cam{};
+  cam.controllee_id_present = true;
+  cam.controller_id_present = true;
+  cam.action_mode = action_mode::EXECUTE;  // 0b10 -> bit 24
+  cam.validity_ack = true;                  // bit 21
+  uint32_t w = cam.to_word();
+  CHECK(((w >> 31) & 1) == 1);
+  CHECK(((w >> 29) & 1) == 1);
+  CHECK(((w >> 23) & 0b11) == 0b10);
+  CHECK(((w >> 21) & 1) == 1);  // validity ack
+  CHECK(w == (0x80000000u | 0x20000000u | 0x01000000u | 0x00200000u));
+  // NACK (bit 22) + ack bits (11-8) round-trip.
+  Cam cam2{};
+  cam2.nack = true;
+  cam2.ack_bits = 0b1010;
+  uint32_t w2 = cam2.to_word();
+  CHECK(((w2 >> 22) & 1) == 1);
+  CHECK(((w2 >> 8) & 0b1111) == 0b1010);
+  CHECK(Cam::from_word(w2) == cam2);
+  // CIF set/clear.
+  Cif c = Cif{}.with(cif0::REFERENCE_POINT, true).with(cif0::SAMPLE_RATE, true).with(
+      cif0::CIF1_PRESENT, true);
+  CHECK(c.get(cif0::REFERENCE_POINT));
+  CHECK(c.get(cif0::SAMPLE_RATE));
+  CHECK(c.get(cif0::CIF1_PRESENT));
+  CHECK(!c.get(cif0::SHORT_FORM));
+  Cif c2 = c.with(cif0::SAMPLE_RATE, false);
+  CHECK(!c2.get(cif0::SAMPLE_RATE));
+  CHECK(c2.get(cif0::REFERENCE_POINT));
+  // Buffer status round-trip.
+  BufferState b{};
+  b.size_bytes = 1u << 20;
+  b.overflow = true;
+  b.near_empty = true;
+  b.level = 0x0ABC;  // 12-bit fill level
+  uint32_t sw = b.status_word();
+  CHECK(((sw >> 4) & 0x0FFF) == 0x0ABC);  // level at bits 15-4
+  CHECK((sw >> 16) == 0);                  // bits 31-16 reserved/zero
+  CHECK(((sw >> 3) & 1) == 1);
+  CHECK(((sw >> 1) & 1) == 1);
+  CHECK(((sw >> 2) & 1) == 0);
+  BufferState back = BufferState::from_status_word(b.size_bytes, sw);
+  CHECK(back == b);
+  // Action-mode validation.
+  CHECK(!throws([] { check_action_mode(action_mode::EXECUTE); }));
+  CHECK(!throws([] { check_action_mode(0b11); }));
+  CHECK(throws([] { check_action_mode(0b100); }));
+}
+
+// DIFI 1.1 backward-compat regression gate — spec difi-1.2-dataplane task 5. Decodes the
+// committed 1.1 golden packets through the 1.2-extended decoder and asserts the
+// documented fields survive. Mirrors rust/tests/backcompat_1_1.rs.
+static std::vector<uint8_t> read_golden(const std::string& name) {
+  std::string path = std::string(DIFI_GOLDEN_DIR) + "/" + name;
+  std::ifstream f(path, std::ios::binary);
+  if (!f) {
+    std::printf("FAIL: cannot open golden %s\n", path.c_str());
+    ++g_failures;
+    return {};
+  }
+  return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)),
+                              std::istreambuf_iterator<char>());
+}
+
+static void test_backcompat_1_1() {
+  // Signal Context golden -> documented fields, still class 0x0001.
+  {
+    auto buf = read_golden("signal_context_16bit.difi.bin");
+    CHECK(buf.size() == 108);
+    Decoder dec;
+    DifiPacket p = dec.decode(buf);
+    CHECK(p.kind == PacketKind::SignalContext);
+    const auto& c = *p.context;
+    CHECK(c.header.stream_id == 0x12345678u);
+    CHECK(c.header.integer_seconds == 1700000000u);
+    CHECK(c.header.fractional_seconds == 123456789000ull);
+    CHECK(c.header.packet_class == constants::packet_class::SIGNAL_CONTEXT);
+    CHECK(c.header.tsf == constants::tsf::REAL_TIME_PS);
+    CHECK(std::abs(c.rf_reference_hz - 2.401e9) < 1.0);
+    CHECK(std::abs(c.bandwidth_hz - 1.0e6) < 1.0);
+    CHECK(std::abs(c.sample_rate_hz - 1.25e6) < 1.0);
+    CHECK(std::abs(static_cast<double>(c.gain_db) - (-3.5)) < 1e-6);
+    CHECK(c.data_format.bit_depth == 16);
+  }
+  // Version Context golden.
+  {
+    auto buf = read_golden("version_context.difi.bin");
+    CHECK(buf.size() == 44);
+    Decoder dec;
+    DifiPacket p = dec.decode(buf);
+    CHECK(p.kind == PacketKind::VersionContext);
+    const auto& v = *p.version;
+    CHECK(v.header.packet_class == constants::packet_class::VERSION_CONTEXT);
+    CHECK(v.year == 2021);
+    CHECK(v.day == 100);
+  }
+  // Signal Data golden -> documented samples, still class 0x0000.
+  {
+    auto buf = read_golden("signal_data_16bit.difi.bin");
+    CHECK(buf.size() == 60);
+    Decoder dec;
+    dec.set_bit_depth(0x12345678u, 16);
+    DifiPacket p = dec.decode(buf);
+    CHECK(p.kind == PacketKind::SignalData);
+    const auto& d = *p.data;
+    CHECK(d.header.packet_class == constants::packet_class::SIGNAL_DATA);
+    CHECK(d.header.seq_num == 0);
+    CHECK(d.bit_depth == 16);
+    std::vector<IqSample> expected{{-4, 100}, {-3, 75}, {-2, 50}, {-1, 25},
+                                   {0, 0},    {1, -25}, {2, -50}, {3, -75}};
+    CHECK(d.samples == expected);
+  }
+}
+
+// DIFI 1.2 Sample Count Data/Context twins — spec difi-1.2-dataplane task 4. Mirrors
+// rust/tests/sample_count.rs.
+static void test_sample_count() {
+  // Sample Count Signal Data (0x0002) round-trip with sample-count TSF.
+  {
+    StreamEncoder enc(0x00000042, 16);
+    std::vector<IqSample> samples{{100, -200}, {7, 9}};
+    auto bytes = enc.encode_data_sample_count(samples, 1700000000u, 4096);
+    Decoder dec;
+    dec.set_bit_depth(0x00000042, 16);
+    DifiPacket p = dec.decode(bytes);
+    CHECK(p.kind == PacketKind::SignalData);
+    const auto& d = *p.data;
+    CHECK(d.header.packet_class == constants::packet_class::SAMPLE_COUNT_SIGNAL_DATA);
+    CHECK(d.header.information_class == constants::information_class::DATA_PLANE_FLOW_CONTROL);
+    CHECK(d.header.tsf == constants::tsf::SAMPLE_COUNT);
+    CHECK(d.header.fractional_seconds == 4096u);
+    CHECK(d.samples == samples);
+  }
+  // Sample Count Signal Context (0x0003) round-trip; seeds the decoder's bit depth.
+  {
+    StreamEncoder enc(0x00000043, 12);
+    auto bytes = enc.encode_context_sample_count(2.4e9, 20e6, 30.72e6, -3.0, 1700000000u, 0);
+    Decoder dec;
+    DifiPacket p = dec.decode(bytes);
+    CHECK(p.kind == PacketKind::SignalContext);
+    const auto& c = *p.context;
+    CHECK(c.header.packet_class == constants::packet_class::SAMPLE_COUNT_SIGNAL_CONTEXT);
+    CHECK(c.header.tsf == constants::tsf::SAMPLE_COUNT);
+    CHECK(c.data_format.bit_depth == 12);
+  }
+  // Sample-count context is byte-identical to the standard context except word 0 (TSF)
+  // and word 3 (class codes).
+  {
+    StreamEncoder enc(0x00000044, 8);
+    auto std_ctx = enc.encode_context(1e9, 1e6, 2e6, 0.0, 1700000000u, 0);
+    auto sc_ctx = enc.encode_context_sample_count(1e9, 1e6, 2e6, 0.0, 1700000000u, 0);
+    CHECK(std_ctx.size() == sc_ctx.size());
+    for (size_t off = 0; off < std_ctx.size(); ++off) {
+      if (std_ctx[off] != sc_ctx[off]) {
+        bool allowed = off < 4 || (off >= 12 && off < 16);
+        CHECK(allowed);
+      }
+    }
+  }
+  // Regression: a 1.1 standard-flow context still decodes unchanged.
+  {
+    StreamEncoder enc(0x00000045, 16);
+    auto bytes = enc.encode_context(1e9, 1e6, 2e6, 0.0, 1700000000u, 0);
+    Decoder dec;
+    DifiPacket p = dec.decode(bytes);
+    CHECK(p.kind == PacketKind::SignalContext);
+    CHECK(p.context->header.packet_class == constants::packet_class::SIGNAL_CONTEXT);
+    CHECK(p.context->header.tsf == constants::tsf::REAL_TIME_PS);
+  }
+  // A type-0x4 context with an unknown class is rejected.
+  {
+    StreamEncoder enc(1, 16);
+    auto bytes = enc.encode_context(1e9, 1e6, 2e6, 0.0, 1, 0);
+    bytes[14] = 0x00;
+    bytes[15] = 0x77;
+    CHECK(throws([&] { SignalContextPacket::unpack(bytes); }));
+  }
+}
+
+// DIFI 1.2 Timing Flow Control — spec difi-1.2-dataplane task 3. Mirrors
+// rust/src/flowcontrol.rs tests; the two implementations MUST agree byte-for-byte.
+static TimingFlowControlPacket make_fc(FlowControlKind kind) {
+  TimingFlowControlPacket p{};
+  p.header = make_header(constants::packet_type::COMMAND,
+                         constants::information_class::DATA_PLANE_FLOW_CONTROL,
+                         flow_control_packet_class(kind), 3);
+  p.header.tsm = constants::tsm::DATA;
+  p.header.tsf = flow_control_tsf(kind);
+  p.header.stream_id = 0xABCD1234;
+  p.kind = kind;
+  p.cam.controllee_id_present = true;
+  p.cam.controller_id_present = true;
+  p.cam.action_mode = command::action_mode::EXECUTE;
+  p.message_id = 7;
+  p.controllee_id = 0x11112222;
+  p.controller_id = 0x33334444;
+  p.reference_point = constants::command::REF_POINT;
+  p.sample_rate_hz = 30720000.0;
+  p.timestamp_adjust_fs = -5000;
+  p.buffer.size_bytes = 1u << 22;
+  p.buffer.near_full = true;
+  p.buffer.level = 0x0ABC;  // 12-bit fill level
+  return p;
+}
+
+static void test_flow_control() {
+  // Sample-count round-trip.
+  TimingFlowControlPacket sc = make_fc(FlowControlKind::SampleCount);
+  auto b = sc.pack();
+  CHECK(b.size() == 84);
+  TimingFlowControlPacket back = TimingFlowControlPacket::unpack(b);
+  CHECK(back.kind == FlowControlKind::SampleCount);
+  CHECK(back.header.packet_class == constants::packet_class::SAMPLE_COUNT_FLOW_CONTROL);
+  CHECK(back.header.tsf == constants::tsf::SAMPLE_COUNT);
+  CHECK(back.message_id == 7);
+  CHECK(back.controllee_id == 0x11112222);
+  CHECK(back.controller_id == 0x33334444);
+  CHECK(std::abs(back.sample_rate_hz - 30720000.0) < 1e-6);
+  CHECK(back.timestamp_adjust_fs == -5000);
+  CHECK(back == sc);
+  // Real-time round-trip.
+  TimingFlowControlPacket rt = make_fc(FlowControlKind::RealTime);
+  TimingFlowControlPacket rtb = TimingFlowControlPacket::unpack(rt.pack());
+  CHECK(rtb.kind == FlowControlKind::RealTime);
+  CHECK(rtb.header.packet_class == constants::packet_class::REAL_TIME_FLOW_CONTROL);
+  CHECK(rtb.header.tsf == constants::tsf::REAL_TIME_PS);
+  // Buffer status flags survive.
+  TimingFlowControlPacket fp = make_fc(FlowControlKind::RealTime);
+  fp.buffer = command::BufferState{};
+  fp.buffer.size_bytes = 9999;
+  fp.buffer.overflow = true;
+  fp.buffer.underflow = true;
+  fp.buffer.near_empty = true;
+  fp.buffer.level = 0x0FFF;  // max 12-bit fill level
+  TimingFlowControlPacket fpb = TimingFlowControlPacket::unpack(fp.pack());
+  CHECK(fpb.buffer.overflow);
+  CHECK(fpb.buffer.underflow);
+  CHECK(!fpb.buffer.near_full);
+  CHECK(fpb.buffer.near_empty);
+  CHECK(fpb.buffer.level == 0x0FFF);
+  // Fail-closed on wrong class / size.
+  auto bad = sc.pack();
+  bad[14] = 0x00;
+  bad[15] = 0x99;
+  CHECK(throws([&] { TimingFlowControlPacket::unpack(bad); }));
+  auto full = sc.pack();  // one allocation — do NOT call pack() twice across an iterator pair
+  std::vector<uint8_t> short_buf(full.begin(), full.begin() + 80);
+  CHECK(throws([&] { TimingFlowControlPacket::unpack(short_buf); }));
+  // The Decoder routes a flow-control packet with NO prior Signal Context for its stream
+  // (the bit-depth gate must not block it).
+  Decoder dec;
+  DifiPacket dp = dec.decode(sc.pack());
+  CHECK(dp.kind == PacketKind::TimingFlowControl);
+  CHECK(dp.flow_control.has_value());
+  CHECK(dp.flow_control->message_id == 7);
+}
+
+// DIFI 1.2 constants — spec difi-1.2-dataplane task 1. Mirrors
+// rust/tests/constants_1_2.rs; the two implementations MUST agree.
+static void test_constants_1_2() {
+  namespace c = difi::constants;
+  // DIFI 1.1 values unchanged.
+  CHECK(c::VITA_OUI == 0x006A621Eu);
+  CHECK(c::HEADER_WORDS == 7);
+  CHECK(c::packet_type::SIGNAL_DATA == 0x1);
+  CHECK(c::packet_type::CONTEXT == 0x4);
+  CHECK(c::version_packet_type::VERSION_CONTEXT == 0x5);
+  CHECK(c::information_class::STANDARD_FLOW == 0x0000);
+  CHECK(c::information_class::VERSION_FLOW == 0x0001);
+  CHECK(c::packet_class::SIGNAL_DATA == 0x0000);
+  CHECK(c::packet_class::SIGNAL_CONTEXT == 0x0001);
+  CHECK(c::packet_class::VERSION_CONTEXT == 0x0004);
+  CHECK(c::context::WORDS == 27);
+  CHECK(c::version::WORDS == 11);
+  // DIFI 1.2 additions.
+  CHECK(c::packet_type::COMMAND == 0x6);
+  CHECK(c::information_class::DATA_PLANE_FLOW_CONTROL == 0x0002);
+  CHECK(c::information_class::DATA_PLANE_FLOW_CONTROL_RT == 0x0003);
+  CHECK(c::information_class::BASIC_DATA_PLANE_2 == 0x0004);
+  CHECK(c::packet_class::SAMPLE_COUNT_SIGNAL_DATA == 0x0002);
+  CHECK(c::packet_class::SAMPLE_COUNT_SIGNAL_CONTEXT == 0x0003);
+  CHECK(c::packet_class::SAMPLE_COUNT_FLOW_CONTROL == 0x0005);
+  CHECK(c::packet_class::REAL_TIME_FLOW_CONTROL == 0x0006);
+  CHECK(c::command::WORDS == 21);
+  CHECK(c::command::REF_POINT == 0x00000064u);
+  CHECK(c::buffer_status::OVERFLOW_BIT == 3);
+  CHECK(c::buffer_status::NEAR_FULL_BIT == 2);
+  CHECK(c::buffer_status::NEAR_EMPTY_BIT == 1);
+  CHECK(c::buffer_status::UNDERFLOW_BIT == 0);
+  // Namespaces distinct but consistent where meant to line up.
+  CHECK(c::packet_class::VERSION_CONTEXT == c::information_class::BASIC_DATA_PLANE_2);
+  CHECK(c::packet_type::SIGNAL_DATA != c::packet_type::CONTEXT);
+  CHECK(c::packet_type::CONTEXT != c::packet_type::COMMAND);
+}
+
 int main() {
+  test_constants_1_2();
+  test_command_core();
+  test_flow_control();
+  test_sample_count();
+  test_backcompat_1_1();
   test_iq_round_trip();
   test_iq_rejections();
   test_signal_data_round_trip();
@@ -378,9 +789,11 @@ int main() {
   test_mapper_endpoints();
   test_mapper_clamps();
   test_mapper_loss_measured();
+  test_mapper_difi_full_scale();
   test_mapper_rejects_bad_depth();
   test_property_iq_round_trip();
   test_fuzz_decoder_never_crashes();
+  test_flow_control_property_and_fuzz();
   test_segmented_encode_reassembles();
   test_tcp_dev_mode_exchange();
 

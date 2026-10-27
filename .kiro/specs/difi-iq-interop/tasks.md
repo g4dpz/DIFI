@@ -74,9 +74,9 @@ the requirements it satisfies. DIFI 1.1 is the target; keep hooks for 1.2.1.
   - _Requirements: 4.1, 4.2, 4.3_
   - **Done** (with a caveat). `rust/src/mapper.rs`, `cpp/include/difi/difi.hpp`. DQ-2
     resolved: 16-bit signed, full-scale = 2^(n-1)-1, documented in the golden manifest.
-    Loss measured (max 0.5 LSB), never assumed zero. **Req 4.3 caveat:** the convention
-    is documented but NOT yet reconciled against the DIFI MILCOM reference-gain/scaling
-    guidance — follow-up.
+    Loss measured (max 0.5 LSB), never assumed zero. **Req 4.3 now met:** reconciled
+    against the DIFI MILCOM reference-gain/scaling guidance in the `difi-1.2-dataplane`
+    feature (task 9); see `docs/REFERENCE-GAIN-SCALING-RECONCILIATION.md`.
 
 - [x] 9. UDP transport (+ optional TCP dev mode)
   - Implement UDP send/receive decoupled from the packet model; Stream-ID filtering on
@@ -109,9 +109,11 @@ the requirements it satisfies. DIFI 1.1 is the target; keep hooks for 1.2.1.
   - **Done** (Req 6.1–6.3). `rust/src/signal.rs` + `rust/src/manifest.rs` +
     `rust/src/sha256.rs`; `difi-tool generate`/`verify-manifest`. Raw cf32 → gitignored
     `work/`, manifest → tracked `signals/`. Regenerate→SHA match tested
-    (`rust/tests/manifest.rs`, interop.sh §7). **Req 6.4 partial:** manifest records
-    SHA-256 for external hosting, but no actual Zenodo/Release dataset is wired up, and
-    the committed signal is an AFS-*style* waveform, not a real LSIS-AFS vector (DQ-4).
+    (`rust/tests/manifest.rs`, interop.sh §7). **Req 6.4 now met:** hosting decision
+    recorded in the `difi-1.2-dataplane` feature (task 10) — the committed reference is
+    the reproducible generator-backed waveform; external-by-SHA-256 hosting is the
+    documented, ready mechanism for a real vector (DQ-4 resolved). See
+    `docs/DATASET-HOSTING-DECISION.md`.
 
 - [x] 12. Interop: export/import an existing reference signal over DIFI
   - End-to-end: regenerate an LSIS-AFS float32 signal → map to DIFI integer → encode →
@@ -150,18 +152,36 @@ All 14 tasks are implemented in **two independent implementations (Rust + C++)**
 the Python package DQ-1 proposed — validated against each other, against the DIFI
 Consortium reference, and against gr-difi. See `IMPLEMENTATIONS.md` and `docs/interop/`.
 Build/test: `cd rust && cargo test`; `cmake -S cpp -B cpp/build && cmake --build cpp/build
-&& ctest --test-dir cpp/build`; `./tests/interop.sh` (9 sections).
+&& ctest --test-dir cpp/build`; `./tests/interop.sh` (now 12 sections, incl. the DIFI 1.2
+flow-control additions from the `difi-1.2-dataplane` feature).
 
-### Known gaps (deferred, not silently dropped)
-- **Req 4.3 — scaling vs DIFI MILCOM reference-gain guidance:** convention is documented
-  and pinned, but not yet reconciled against that external guidance.
-- **Req 6.4 / DQ-4 — canonical dataset hosting:** manifest records SHA-256 for external
-  hosting, but no real LSIS-AFS vector or Zenodo/Release asset is wired up; the committed
-  signal is a reproducible AFS-*style* waveform.
-- **Task 13 / gr-difi:** interop is verified at packet/sample-count level, not by an
-  end-to-end loss round-trip (gr-difi uses its own scaling); gr-difi's sink is flaky.
-- **Design doc:** DQ-1 (Rust+C++), DQ-2 (16-bit full-scale), DQ-3 (DIFI 1.1 only)
-  resolved in practice; `design.md` still lists them as open.
+### Known gaps — status (all addressed in the `difi-1.2-dataplane` feature)
+
+These were the deferred 1.1 gaps. The `difi-1.2-dataplane` feature closed or precisely
+characterised each (tasks 9–12); none was silently dropped.
+
+- **Req 4.3 — scaling vs DIFI MILCOM reference-gain guidance:** **RESOLVED** (1.2 task 9).
+  Reconciled against the DIFI "Reference Gain and Scaling" guidance: context Reference
+  Level/Scaling/Gain fields conformant (zeros, verified); quantization denominator differs
+  from the standard's `2^(n-1)` by a documented sub-LSB deliberate choice. See
+  `docs/REFERENCE-GAIN-SCALING-RECONCILIATION.md`.
+- **Req 6.4 / DQ-4 — canonical dataset hosting:** **RESOLVED** (1.2 task 10). Decision
+  recorded: the committed reference is the reproducible generator-backed waveform;
+  external-by-SHA-256 hosting is the documented, ready mechanism for a real vector. See
+  `docs/DATASET-HOSTING-DECISION.md`.
+- **Task 13 / gr-difi:** **CHARACTERISED, remains a known limitation** (1.2 task 11).
+  Interop is verified at packet/sample-count level, not by an end-to-end per-sample loss
+  round-trip: gr-difi's source decodes the correct sample *count* but not sample-aligned
+  values from our stream (the mismatch is on gr-difi's buffering side — our export codes,
+  our own round-trip loss, and our conformance vs the reference + dissector are all
+  verified correct). The reconciliation harness
+  (`tests/gnuradio/route2_grdifi/gr_difi_loss.cc`, `compare_loss.py`) is committed and the
+  finding recorded in `docs/interop/GNURADIO-GRDIFI-EVIDENCE.md`; it is deliberately NOT
+  wired as a passing gate because it does not pass. gr-difi's sink is also flaky. Closing
+  it fully is gr-difi tuning, not our defect.
+- **Design doc DQ wording:** **RESOLVED** (1.2 task 12). `design.md` now records DQ-1
+  (Rust+C++), DQ-2 (16-bit full-scale, reconciled), DQ-3 (version target → 1.3.0 via the
+  follow-on features), and DQ-4 (dataset hosting) all as resolved — matching reality.
 
 ## Notes
 - Tasks 1–7 deliver a standalone, unit-tested DIFI 1.1 codec (no network needed).

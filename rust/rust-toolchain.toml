@@ -1,0 +1,6 @@
+# Pin the Rust toolchain so local developer builds and CI agree on the exact compiler and
+# clippy lint set (an unpinned "stable" drifts, surfacing new lints only in CI). Update
+# deliberately when adopting a newer toolchain.
+[toolchain]
+channel = "1.90.0"
+components = ["rustfmt", "clippy"]

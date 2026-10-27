@@ -36,7 +36,7 @@ pub struct Header {
 }
 
 impl Header {
-    fn write_into(&self, packet_size_words: u16, out: &mut Vec<u8>) {
+    pub(crate) fn write_into(&self, packet_size_words: u16, out: &mut Vec<u8>) {
         let word0: u32 = ((self.packet_type as u32 & 0xF) << 28)
             | ((self.class_id_present as u32) << 27)
             // bits 25-26 reserved = 0
@@ -55,7 +55,7 @@ impl Header {
     }
 
     /// Parse the fixed 28-byte header, fail-closed. Returns (header, declared_words).
-    fn parse(buf: &[u8]) -> Result<(Header, u16)> {
+    pub(crate) fn parse(buf: &[u8]) -> Result<(Header, u16)> {
         if buf.len() < HEADER_BYTES {
             return Err(DifiError::Truncated {
                 field: "header",
@@ -105,6 +105,18 @@ impl Header {
     }
 }
 
+/// Is this a Signal Data packet class — the 1.1 standard-flow (`0x0000`) or the DIFI 1.2
+/// Sample Count (`0x0002`) twin? The two share an identical wire layout.
+pub fn is_signal_data_class(class: u16) -> bool {
+    class == packet_class::SIGNAL_DATA || class == packet_class::SAMPLE_COUNT_SIGNAL_DATA
+}
+
+/// Is this a Signal Context packet class — the 1.1 standard-flow (`0x0001`) or the DIFI
+/// 1.2 Sample Count (`0x0003`) twin? The two share an identical wire layout.
+pub fn is_signal_context_class(class: u16) -> bool {
+    class == packet_class::SIGNAL_CONTEXT || class == packet_class::SAMPLE_COUNT_SIGNAL_CONTEXT
+}
+
 /// A DIFI 1.1 Signal Data packet (header + I/Q payload).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignalDataPacket {
@@ -147,11 +159,17 @@ impl SignalDataPacket {
                 actual: header.packet_type,
             });
         }
+        // Accept both standard-flow (0x0000) and Sample Count (0x0002) data classes.
+        if !is_signal_data_class(header.packet_class) {
+            return Err(DifiError::BadPacketClass {
+                actual: header.packet_class,
+            });
+        }
         let payload = &buf[HEADER_BYTES..declared_words as usize * 4];
         let payload_words = payload.len() / 4;
         // samples = payload_words * 32 / (2 * bit_depth)
         let total_bits = payload_words * 32;
-        if total_bits % (2 * bit_depth as usize) != 0 {
+        if !total_bits.is_multiple_of(2 * bit_depth as usize) {
             return Err(DifiError::NotWordAligned {
                 field: "payload bits / (2*bit_depth)",
                 value: total_bits,
@@ -228,17 +246,21 @@ impl SignalContextPacket {
         out.extend_from_slice(&cif0.to_be_bytes());
         out.extend_from_slice(&context::REF_POINT.to_be_bytes());
         // bandwidth(u64 scaled), ifFreq(i64), rfFreq(i64), ifBandOffset(i64)
-        out.extend_from_slice(&(to_fixed_i64(self.bandwidth_hz, scale::RADIX_20) as u64).to_be_bytes());
+        out.extend_from_slice(
+            &(to_fixed_i64(self.bandwidth_hz, scale::RADIX_20) as u64).to_be_bytes(),
+        );
         out.extend_from_slice(&to_fixed_i64(self.if_reference_hz, scale::RADIX_20).to_be_bytes());
         out.extend_from_slice(&to_fixed_i64(self.rf_reference_hz, scale::RADIX_20).to_be_bytes());
         out.extend_from_slice(&0i64.to_be_bytes()); // ifBandOffset
-        // refLevel1, refLevel2, stage1GainAtten, stage2GainAtten (i16 scaled)
+                                                    // refLevel1, refLevel2, stage1GainAtten, stage2GainAtten (i16 scaled)
         out.extend_from_slice(&0i16.to_be_bytes());
         out.extend_from_slice(&0i16.to_be_bytes());
         out.extend_from_slice(&to_fixed_i16(self.gain_db, scale::RADIX_7).to_be_bytes());
         out.extend_from_slice(&0i16.to_be_bytes());
         // sampleRate(u64 scaled)
-        out.extend_from_slice(&(to_fixed_i64(self.sample_rate_hz, scale::RADIX_20) as u64).to_be_bytes());
+        out.extend_from_slice(
+            &(to_fixed_i64(self.sample_rate_hz, scale::RADIX_20) as u64).to_be_bytes(),
+        );
         // timeStampAdj(i64), timeStampCal(u32)
         out.extend_from_slice(&0i64.to_be_bytes());
         out.extend_from_slice(&0u32.to_be_bytes());
@@ -261,7 +283,10 @@ impl SignalContextPacket {
                 actual: header.packet_type,
             });
         }
-        if header.packet_class != packet_class::SIGNAL_CONTEXT {
+        // Accept both the standard-flow Signal Context (0x0001) and the DIFI 1.2
+        // Sample Count Signal Context (0x0003): identical wire layout, distinguished only
+        // by class code + TSF mode. Any other class is rejected (fail-closed).
+        if !is_signal_context_class(header.packet_class) {
             return Err(DifiError::BadPacketClass {
                 actual: header.packet_class,
             });
@@ -361,13 +386,10 @@ impl VersionContextPacket {
         out.extend_from_slice(&cif0.to_be_bytes());
         out.extend_from_slice(&version::CIF1.to_be_bytes());
         out.extend_from_slice(&version::V49_SPEC_VERSION.to_be_bytes());
-        // versionInfo: year(7, since 2000) day(9) revision(6=1) type(4=0) icdVersion(6=0)
+        // versionInfo: year(7, since 2000) day(9) revision(6=1) type(4=0) icdVersion(6=0).
+        // The type and icdVersion fields are 0, so they contribute nothing to the word.
         let year_field = (self.year as i32 - 2000).clamp(0, 127) as u32;
-        let version_info = (year_field << 25)
-            | ((self.day as u32 & 0x1FF) << 16)
-            | (1u32 << 10) // revision = 1
-            | (0u32 << 6)  // type = 0
-            | 0u32; // icdVersion = 0
+        let version_info = (year_field << 25) | ((self.day as u32 & 0x1FF) << 16) | (1u32 << 10); // revision = 1
         out.extend_from_slice(&version_info.to_be_bytes());
         debug_assert_eq!(out.len(), version::WORDS as usize * 4);
         Ok(out)
@@ -410,8 +432,8 @@ impl VersionContextPacket {
 
 /// Reject a Packet-Size/length mismatch (Req 1.5): the declared word count MUST equal
 /// the actual buffer length in words, and the buffer must be word-aligned.
-fn validate_size(declared_words: u16, actual_bytes: usize) -> Result<()> {
-    if actual_bytes % 4 != 0 {
+pub(crate) fn validate_size(declared_words: u16, actual_bytes: usize) -> Result<()> {
+    if !actual_bytes.is_multiple_of(4) {
         return Err(DifiError::NotWordAligned {
             field: "packet length",
             value: actual_bytes,
@@ -427,12 +449,12 @@ fn validate_size(declared_words: u16, actual_bytes: usize) -> Result<()> {
 }
 
 #[inline]
-fn read_u32(buf: &[u8], off: usize) -> u32 {
+pub(crate) fn read_u32(buf: &[u8], off: usize) -> u32 {
     u32::from_be_bytes([buf[off], buf[off + 1], buf[off + 2], buf[off + 3]])
 }
 
 #[inline]
-fn read_u64(buf: &[u8], off: usize) -> u64 {
+pub(crate) fn read_u64(buf: &[u8], off: usize) -> u64 {
     let mut b = [0u8; 8];
     b.copy_from_slice(&buf[off..off + 8]);
     u64::from_be_bytes(b)
@@ -447,4 +469,3 @@ fn read_i64(buf: &[u8], off: usize) -> i64 {
 fn read_i16(buf: &[u8], off: usize) -> i16 {
     i16::from_be_bytes([buf[off], buf[off + 1]])
 }
-

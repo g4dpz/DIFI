@@ -36,6 +36,15 @@ either implementation regenerates exactly the same bytes.
 | `afs-style-tone-4096.manifest.json` | 4096 | cf32 | Reproducible LSIS-AFS-*style* waveform (tone sum + envelope). Used by the export/import interop evidence. |
 
 The raw output lands in `work/` (gitignored). The `afs-style-tone-4096` signal is a
-representative stand-in, not a real LSIS-AFS vector; a real vector would be added here as
-its own manifest, with the large canonical data hosted externally (Zenodo / Release
-asset) and referenced by the recorded SHA-256 (Req 6.4).
+representative stand-in, not a real LSIS-AFS vector.
+
+## Hosting decision (DQ-4 / Req 6.4 — resolved)
+
+The toolkit's committed reference is this **reproducible, generator-backed** waveform; it
+needs no external host because it is regenerated identically on demand. External hosting
+by SHA-256 is the **documented, ready mechanism** for a real canonical vector when one is
+contributed — see `docs/DATASET-HOSTING-DECISION.md` for the decision, rationale, and the
+exact procedure (compute SHA-256 → host on Zenodo or a Release asset → add a manifest
+recording the checksum + URL → consumers verify against the SHA-256). Each manifest already
+records `sha256` + `byte_size`, which is the binding hosting contract; adding a real vector
+is purely additive.

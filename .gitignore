@@ -53,3 +53,8 @@ work/
 
 # Internal correspondence drafts — not for the public repo
 docs/email-to-*-DRAFT.md
+
+# Confidential DIFI standard source documents (licensed, not redistributable).
+# The public repo carries only our own primer/derived docs, never the spec PDFs.
+*.pdf
+docs/DIFI_Standard_*

@@ -55,7 +55,7 @@ pub fn sample_range(bit_depth: u8) -> (i32, i32) {
 pub fn payload_word_count(sample_count: usize, bit_depth: u8) -> Result<usize> {
     check_bit_depth(bit_depth)?;
     let total_bits = sample_count * 2 * bit_depth as usize;
-    if total_bits % 32 != 0 {
+    if !total_bits.is_multiple_of(32) {
         return Err(DifiError::NotWordAligned {
             field: "samples*2*bit_depth (bits)",
             value: total_bits,

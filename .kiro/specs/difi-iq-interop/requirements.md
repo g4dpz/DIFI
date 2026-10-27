@@ -166,14 +166,23 @@ implementations, Rust + C++). See `tasks.md`, `IMPLEMENTATIONS.md`, and `docs/in
   dissect cleanly in the DIFI Wireshark dissector, run headless via `tshark`
   (`tests/conformance/wireshark_check.py`, interop.sh §8b).
 - **Req 4 (sample mapping):** 4.1, 4.2 met (documented, deterministic, measured loss).
-  **4.3 partial** — the convention is documented and in the manifest, but not yet
-  reconciled against the DIFI MILCOM reference-gain/scaling guidance.
+  **4.3 met** — reconciled against the DIFI MILCOM "Reference Gain and Scaling" guidance in
+  the `difi-1.2-dataplane` feature (task 9); see
+  `docs/REFERENCE-GAIN-SCALING-RECONCILIATION.md`. Context Reference Level/Scaling/Gain
+  fields are conformant (emitted as zeros, verified against the reference); the
+  quantization denominator is `2^(n-1)−1` vs the standard's `2^(n-1)` by a documented
+  sub-LSB (−0.00027 dB at 16-bit) deliberate choice, with `difi_full_scale_code()` exposing
+  the standard's reference.
 - **Req 5 (transport):** 5.1 (UDP), 5.2 (TCP dev mode), and 5.3 (Stream-ID filter) all
   met. TCP is length-framed and clearly marked non-standard (`TcpSender`/`TcpReceiver`
   in both implementations), with Stream-ID filtering and loopback tests.
-- **Req 6 (reproducible signals):** 6.1, 6.2, 6.3 met. **6.4 partial** — the manifest
-  records a SHA-256 for external hosting, but no real canonical dataset is hosted yet and
-  the committed signal is an LSIS-AFS-*style* waveform, not a real LSIS-AFS vector.
+- **Req 6 (reproducible signals):** 6.1, 6.2, 6.3 met. **6.4 met** — hosting decision
+  recorded in the `difi-1.2-dataplane` feature (task 10): the committed reference is the
+  reproducible, generator-backed `afs-style-tone-4096` waveform (no external host needed);
+  external hosting by SHA-256 (Zenodo / Release asset) is the documented, ready mechanism
+  for a real canonical vector when contributed. The manifest's SHA-256 + byte size is the
+  binding contract. See `docs/DATASET-HOSTING-DECISION.md`. (The committed signal remains a
+  representative stand-in, not a real LSIS-AFS vector — stated honestly wherever used.)
 - **Req 7 (interoperability):** 7.1 met (export/import within documented loss, all
   directions). 7.2 met via the reference definitions and GNU Radio (Route 1 socket_pdu;
   Route 2 gr-difi's own blocks) — with gr-difi verified at packet/sample-count level

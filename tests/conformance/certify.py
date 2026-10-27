@@ -41,6 +41,22 @@ from packet_definitions.difi_context_v1_1 import difi_context_definition
 from packet_definitions.difi_data_v1_1 import difi_data_definition
 from packet_definitions.difi_version_v1_1 import difi_version_definition
 
+# DIFI 1.2.1 reference definitions for the 1.2 additions (fetched by setup.sh). These are
+# REQUIRED, not optional: a missing or broken import must fail the run with setup
+# instructions, never be treated as full conformance. (setup.sh fetches all of them at
+# the pinned commit; if they are absent the fetch did not complete.)
+try:
+    from packet_definitions.difi_data_v1_2_1 import difi_data_definition as difi_data_v12
+    from packet_definitions.difi_context_v1_2_1 import difi_context_definition as difi_context_v12
+    from packet_definitions.difi_command_v1_2_1 import difi_command_definition as difi_command_v12
+except Exception as _e:  # noqa: BLE001
+    sys.stderr.write(
+        "DIFI 1.2.1 reference definitions could not be imported: "
+        f"{_e}\nRe-run tests/conformance/setup.sh to (re)fetch them at the pinned "
+        "commit; do not treat this as passing conformance.\n"
+    )
+    sys.exit(3)
+
 
 def check_fixed_size(name, definition, data):
     """Context and version packets have a fixed size; data packets do not."""
@@ -79,12 +95,25 @@ def main():
     d = sys.argv[1]
 
     cases = [
+        # DIFI 1.1 data plane.
         ("Signal Context", difi_context_definition,
          os.path.join(d, "signal_context_16bit.difi.bin"), True, None),
         ("Version Context", difi_version_definition,
          os.path.join(d, "version_context.difi.bin"), True, None),
         ("Signal Data", difi_data_definition,
          os.path.join(d, "signal_data_16bit.difi.bin"), False, validate_data_size),
+    ]
+
+    # DIFI 1.2 additions, validated against the v1.2.1 reference definitions (required).
+    cases += [
+        ("Sample Count Signal Context", difi_context_v12,
+         os.path.join(d, "sample_count_context_16bit.difi.bin"), True, None),
+        ("Sample Count Signal Data", difi_data_v12,
+         os.path.join(d, "sample_count_data_16bit.difi.bin"), False, validate_data_size),
+        ("Timing Flow Control (sample count)", difi_command_v12,
+         os.path.join(d, "timing_flow_control_sc.difi.bin"), True, None),
+        ("Timing Flow Control (real-time)", difi_command_v12,
+         os.path.join(d, "timing_flow_control_rt.difi.bin"), True, None),
     ]
 
     overall_ok = True

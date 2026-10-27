@@ -142,6 +142,36 @@ def main():
             "difi.integer_timestamp": ("int", 1_700_000_000),
             "difi.fractional_timestamp": ("int", 123_456_789_000),
         }),
+        # DIFI 1.2 additions — the pinned dissector recognises these too.
+        ("sample_count_context_16bit.difi.bin", 4, {
+            "difi.packet_class_code": ("int", 0x0003),
+            "difi.sample_rate":       ("int", 1_250_000),
+            "difi.bandwidth":         ("int", 1_000_000),
+            "difi.integer_timestamp": ("int", 1_700_000_000),
+        }),
+        ("sample_count_data_16bit.difi.bin", 1, {
+            "difi.packet_class_code": ("int", 0x0002),
+            # gen-golden emits the 1.1 data (seq 0) then this sample-count data on the
+            # same encoder, so its running mod-16 sequence number is 1.
+            "difi.seq_num":           ("int", 1),
+            "difi.integer_timestamp": ("int", 1_700_000_000),
+        }),
+        ("timing_flow_control_sc.difi.bin", 6, {
+            "difi.packet_class_code": ("int", 0x0005),
+            "difi.information_class":  ("int", 0x0002),
+            "difi.message_id":        ("int", 1),
+            "difi.controllee_id":     ("int", 0xA1),
+            "difi.controller_id":     ("int", 0xB2),
+            "difi.sample_rate":       ("int", 1_250_000),
+            "difi.buffer_size":       ("int", 1_048_576),
+            "difi.ref_point":         ("int", 0x64),
+        }),
+        ("timing_flow_control_rt.difi.bin", 6, {
+            "difi.packet_class_code": ("int", 0x0006),
+            "difi.information_class":  ("int", 0x0003),
+            "difi.message_id":        ("int", 1),
+            "difi.buffer_size":       ("int", 1_048_576),
+        }),
     ]
 
     base_fields = ["difi.packet_type", "difi.stream_id", "difi.oui"]

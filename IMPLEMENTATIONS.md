@@ -1,9 +1,15 @@
-# Independent DIFI 1.1 Implementations
+# Independent DIFI Implementations (1.1 + 1.2 data plane)
 
-Two independent implementations of the DIFI 1.1 (IEEE-ISTO Std 4900-2021) I/Q codec,
-built so they can exchange I/Q over the DIFI wire format and cross-validate each other.
-Having two *independent* implementations agree on the byte layout is the core interop
-story — neither is "correct by its own definition".
+Two independent implementations of the DIFI (IEEE-ISTO Std 4900-2021) I/Q codec, built so
+they can exchange I/Q over the DIFI wire format and cross-validate each other. Having two
+*independent* implementations agree on the byte layout is the core interop story — neither
+is "correct by its own definition".
+
+Both implementations cover the **DIFI 1.1 data plane** (Signal Data / Signal Context /
+Version Context) and the **DIFI 1.2 data-plane additions** (sample-count classes and
+Timing Flow Control) — see "DIFI 1.2 data plane" below. The 1.2 work also builds the
+shared Command-Packet core that the forthcoming DIFI 1.3.0 link-establishment control
+plane (the version ESTRACK will use) extends.
 
 | Dir | Language | Build | Test |
 |-----|----------|-------|------|
@@ -89,11 +95,59 @@ plus an **end-to-end reference-signal export/import** proven across both impleme
   (`cmake -DDIFI_SANITIZE=ON`), so the decoder's byte-slice bounds are proven, not just
   reasoned about.
 
-Cross-decode against **gr-difi** or vendor hardware (a stronger form of task 13) and the
-Wireshark dissector check (Req 3.1) are the remaining increments. The committed
-reference signal is a reproducible LSIS-AFS-*style* waveform; swapping in a real vector's
-committed parameters would make the evidence use canonical data without changing the
-pipeline (Req 6.4: host the large canonical data externally by SHA-256).
+Cross-decode against **gr-difi** (both directions) and the **Wireshark dissector check**
+(Req 3.1) are both done (see `docs/interop/`). The committed reference signal is a
+reproducible LSIS-AFS-*style* waveform; the hosting decision (Req 6.4 / DQ-4) is recorded
+in `docs/DATASET-HOSTING-DECISION.md` — external-by-SHA-256 is the ready mechanism for a
+real vector. gr-difi end-to-end per-sample loss remains a characterised limitation on
+gr-difi's side (`docs/interop/GNURADIO-GRDIFI-EVIDENCE.md`), not our defect.
+
+## DIFI 1.2 data plane (spec `difi-1.2-dataplane`, tasks 1–14)
+
+Both implementations add the DIFI 1.2 data-plane packets alongside the 1.1 ones,
+additively — no 1.1 layout, API, or golden packet changed (an explicit backward-compat
+regression gate proves it). New in 1.2:
+
+- **Shared Command-Packet core** (`rust/src/command.rs`, `difi::command` in the C++
+  header): field-level CAM (Control/Acknowledge Mode), CIF0/CIF1 presence bitmaps,
+  Controllee/Controller IDs, and Buffer Size/Status. This is the foundation the DIFI
+  1.3.0 link-establishment packets will reuse, not rebuild.
+- **Timing Flow Control packets** (`0x0005` Sample Count, `0x0006` Real-Time TSF):
+  `TimingFlowControlPacket` — a 21-word Command Packet carrying buffer fill-level
+  (OF/NF/NE/UF) and timing. A Sink uses it to pace a Source.
+- **Sample-count Data/Context twins** (`0x0002`/`0x0003`): same wire layout as the 1.1
+  `0x0000`/`0x0001` packets but sample-count-timestamped (TSF = sample count). Emitted
+  via `encode_data_sample_count` / `encode_context_sample_count`.
+- **Information-Class recognition** for the 1.2 groupings (`0x0002`/`0x0003`/`0x0004`).
+
+**Running the 1.2 packets:**
+
+```sh
+# Both tools generate 7 golden packets (3× 1.1 + 4× 1.2), byte-identical across langs:
+rust/target/debug/difi-tool gen-golden <dir>
+cpp/build/difi-tool      gen-golden <dir>
+# Decode any packet (incl. flow control) to text:
+difi-tool dump <packet.bin>
+# Live Rust<->C++ flow-controlled exchange (source streams data, sink replies w/ flow control):
+difi-tool fc-sink   <data-bind> <fc-dest> <count>
+difi-tool fc-source <data-dest> <fc-bind> <count>
+```
+
+**Conformance:** all four 1.2 golden packets validate clean against the DIFI Consortium
+**v1.2.1** reference definitions (`difi_data/context/command_v1_2_1`) and dissect
+correctly in the DIFI Wireshark dissector. Validating against the v1.2.1 reference caught
+three real conformance bugs shared by both implementations (CIF0 CIF1-present bit, info/
+packet class pairing, sample-count context TSM) — now fixed; see
+`tests/conformance/README.md`.
+
+**Interop:** `tests/interop.sh` §1/§2 cover the 1.2 goldens (byte-identity + cross-decode);
+§3c runs the live flow-controlled UDP exchange in all four directions; §8 validates all
+seven packets against the Consortium reference. Evidence:
+`docs/interop/FLOW-CONTROL-EVIDENCE.md`.
+
+**Path to DIFI 1.3.0 / ESTRACK:** 1.1 (shipped) → this 1.2 data plane → 1.3.0 control
+plane (link establishment, separate feature) = full DIFI 1.3.0, the version ESTRACK will
+use. The 1.2 `command` core is the shared foundation the 1.3.0 packets extend.
 
 ## Conformance finding (why task 10 mattered)
 

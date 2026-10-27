@@ -53,7 +53,7 @@ fn stream_id_filter_separates_streams() {
     let other_ctx = other.encode_context(1e9, 1e6, 1e6, 0.0, 0, 0).unwrap();
     let wanted_ctx = wanted.encode_context(2e9, 1e6, 1e6, 0.0, 0, 0).unwrap();
     let wanted_data = wanted
-        .encode_data(&vec![IqSample::new(1, 2); 16], 0, 0)
+        .encode_data(&[IqSample::new(1, 2); 16], 0, 0)
         .unwrap();
 
     // Send an off-stream packet first; it must be dropped by the filter.
@@ -121,13 +121,21 @@ fn tcp_stream_id_filter() {
         let mut other = StreamEncoder::new(0xBBBB_0002, 16);
         let mut wanted = StreamEncoder::new(0xAAAA_0001, 16);
         // Interleave; only the wanted stream should be delivered.
-        sender.send(&other.encode_context(1e9, 1e6, 1e6, 0.0, 0, 0).unwrap()).unwrap();
-        sender.send(&wanted.encode_context(2e9, 1e6, 1e6, 0.0, 0, 0).unwrap()).unwrap();
         sender
-            .send(&other.encode_data(&vec![IqSample::new(9, 9); 16], 0, 0).unwrap())
+            .send(&other.encode_context(1e9, 1e6, 1e6, 0.0, 0, 0).unwrap())
             .unwrap();
         sender
-            .send(&wanted.encode_data(&vec![IqSample::new(1, 2); 16], 0, 0).unwrap())
+            .send(&wanted.encode_context(2e9, 1e6, 1e6, 0.0, 0, 0).unwrap())
+            .unwrap();
+        sender
+            .send(&other.encode_data(&[IqSample::new(9, 9); 16], 0, 0).unwrap())
+            .unwrap();
+        sender
+            .send(
+                &wanted
+                    .encode_data(&[IqSample::new(1, 2); 16], 0, 0)
+                    .unwrap(),
+            )
             .unwrap();
     });
 
