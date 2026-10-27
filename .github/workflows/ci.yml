@@ -3,10 +3,12 @@
 #
 # Runs the same checks the project verifies by hand per task: Rust (fmt/clippy/test),
 # C++ (build + ctest), the C++ sanitizer build (ASan+UBSan — this is what caught a real
-# use-after-free), the cross-implementation interop script, and — best-effort — the
-# external DIFI Consortium conformance oracle (reference definitions + Wireshark
-# dissector). gr-difi (GNU Radio) is intentionally NOT run in CI: it needs platform
-# build patches and has a flaky sink; interop.sh self-skips it.
+# use-after-free), and the cross-implementation interop script. gr-difi (GNU Radio) is
+# intentionally NOT run in CI: it needs platform build patches and has a flaky sink;
+# interop.sh self-skips it. The external DIFI Consortium conformance oracle (reference
+# definitions + Wireshark dissector) is run by hand via tests/conformance/, not in CI:
+# it fetches third-party definitions over the network and took ~10 min per run. Restore
+# it here (with apt/venv caching) once it is proven fast and stable on CI.
 name: CI
 
 on:
@@ -86,40 +88,4 @@ jobs:
       - name: Build C++ tool
         run: cmake -S cpp -B cpp/build && cmake --build cpp/build --target difi-tool
       - name: Interop (core sections; conformance/Wireshark/gr-difi self-skip)
-        run: ./tests/interop.sh
-
-  conformance:
-    name: DIFI conformance oracle (best-effort)
-    runs-on: ubuntu-latest
-    # Best-effort: fetches third-party reference definitions over the network and needs
-    # tshark. A failure here is informational and does NOT block the PR (the core jobs
-    # above are the gates). Promote to required once it is proven stable on CI.
-    continue-on-error: true
-    env:
-      DIFI_VENV: ${{ github.workspace }}/.difi-venv
-      DIFI_VENV_PY: ${{ github.workspace }}/.difi-venv/bin/python3
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.90.0"
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-      - name: Install tshark (Wireshark CLI)
-        run: |
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tshark
-      - name: Fetch DIFI reference definitions + dissector, build venv
-        run: tests/conformance/setup.sh
-      - name: Build both tools (for cross-decode + goldens)
-        run: |
-          cargo build --bin difi-tool --manifest-path rust/Cargo.toml
-          cmake -S cpp -B cpp/build && cmake --build cpp/build --target difi-tool
-      - name: Certify golden packets against the reference definitions
-        run: |
-          "$DIFI_VENV_PY" tests/conformance/certify.py tests/golden
-      - name: Full interop with conformance sections enabled
-        env:
-          DIFI_TSHARK: /usr/bin/tshark
         run: ./tests/interop.sh
